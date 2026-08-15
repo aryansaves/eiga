@@ -1,0 +1,129 @@
+# EIGA — Project Instructions
+
+<!--
+Maintainer note: keep this file concise. Put procedures in skills,
+path-specific conventions in .claude/rules/, and discovered learnings in
+Claude Code auto memory rather than growing this file indefinitely.
+-->
+
+## Product
+
+EIGA is a privacy-first web experience that turns a person's Letterboxd export into an interactive visual map of their movie taste.
+
+Working tagline:
+> Your cinema, mapped.
+
+Core promise:
+> I want to see mine.
+
+EIGA is not a Letterboxd clone, review platform, social network, generic movie database, recommendation chatbot, or AI film critic.
+
+## V1 non-negotiables
+
+- Letterboxd export is processed locally in the browser.
+- No account, server database, analytics platform, or cloud storage is required.
+- No Letterboxd scraping.
+- No dependency on the Letterboxd API.
+- No LLM/AI required for core functionality.
+- No TMDB dependency until the core graph is compelling.
+- Keep the dependency footprint small.
+- The graph is the primary interface, not a chart inside a dashboard.
+- The first complete slice is: import → normalize → graph → explore → inspect.
+
+## Design north star
+
+EIGA should feel like entering a quiet **cinematic observatory / personal atlas**: part film archive, part star chart, part museum catalog, part editorial website.
+
+The fact that the name is Japanese is not a reason to add stereotypical Japanese decoration. Avoid torii, brush fonts, kanji flourishes, anime styling, neon cyberpunk, or other gimmicks unless a future product decision explicitly calls for them.
+
+Visual character:
+- warm-black / charcoal base
+- off-white typography
+- one restrained cinematic accent, initially tungsten/amber
+- thin rules and faint cartographic/grid marks
+- strong editorial typography
+- generous negative space
+- calm motion
+- sparse controls
+- subtle texture only when it adds atmosphere
+
+Avoid:
+- generic SaaS dashboards
+- purple AI gradients
+- excessive glassmorphism
+- pill-shaped-everything
+- rainbow graph categories
+- giant glowing nodes
+- heavy shadows
+- dense admin sidebars
+- excessive rounded cards
+- emoji as primary UI decoration
+
+## Graph principles
+
+- Do not default to an unreadable spiderweb.
+- Preserve hierarchy and legibility.
+- Movies are primary visual objects; metadata entities are quieter.
+- Selected/focused nodes become the anchor.
+- Unrelated nodes should recede instead of abruptly disappearing.
+- Reveal relationships progressively when useful.
+- Labels should be selective and zoom-aware.
+- Motion should communicate state changes, not decorate everything.
+- The graph should feel authored, not like default D3 output.
+
+## Engineering
+
+Primary stack:
+- Next.js App Router
+- React
+- TypeScript
+- Tailwind CSS
+- D3.js
+- Papa Parse
+
+Keep domain logic separate from rendering:
+raw import → normalized domain model → graph/derived data → visualization → UI state.
+
+Prefer pure, deterministic functions for parsing, normalization, graph construction, filtering, and statistics.
+
+Avoid `any`. Avoid premature abstractions. Do not introduce a library to save a few lines of code.
+
+Before adding a substantial dependency or architectural layer, explain:
+1. the concrete problem,
+2. why the current stack is insufficient,
+3. the maintenance/performance/privacy cost.
+
+## Product quality bar
+
+Every feature should pass three tests:
+
+1. Is it immediately understandable?
+2. Does it create a useful or delightful moment?
+3. Does it preserve the visual identity of EIGA?
+
+Prefer one excellent interaction over five ordinary ones.
+
+## Privacy and security
+
+Treat imported Letterboxd data as personal data.
+
+- Do not log titles, ratings, reviews, or identifiers in production.
+- Do not upload raw imports in V1.
+- Validate imported files and handle malformed rows gracefully.
+- Treat imported text as untrusted input.
+- Sanitize/escape displayed content.
+- Keep external API calls explicit and isolated.
+- Never commit secrets.
+
+## Working with Claude Code
+
+Before a significant implementation:
+1. inspect existing code and relevant docs/rules,
+2. state the smallest coherent implementation,
+3. make the change,
+4. run the appropriate checks,
+5. summarize what changed and any remaining risk.
+
+Do not silently expand scope.
+Do not replace working architecture without a measured reason.
+Do not create placeholder TODO features merely to make a screen look complete.

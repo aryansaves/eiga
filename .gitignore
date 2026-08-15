@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# Vercel
+.vercel/
+
+# Testing / coverage
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Build / tooling caches
+.turbo/
+.cache/
+*.tsbuildinfo
+.eslintcache
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local IDE / OS files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Claude Code local-only settings/preferences
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/local/
+
+# Claude Code generated local memory is normally outside the repo; keep any accidental local copy out
+.claude/projects/

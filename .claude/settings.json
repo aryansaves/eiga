@@ -1,12 +1,8 @@
 {
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "gofmt -w $CLAUDE_FILE_PATH 2>/dev/null; true" }
-        ]
-      }
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)"
     ]
   }
 }
