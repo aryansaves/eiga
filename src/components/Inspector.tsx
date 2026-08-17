@@ -28,8 +28,13 @@ function RatingScale({ rating }: { readonly rating: number }) {
         {Array.from({ length: 10 }, (_, index) => (
           <span
             key={index}
+            /*
+              The muted accent, matching the five-star fill in the graph: both
+              mean "rating". Ten ticks at full strength would put more bright
+              colour in the panel than the selected node has in the whole map.
+            */
             className={`h-3 w-[2px] ${
-              index < Math.round(rating * 2) ? "bg-tungsten" : "bg-rule"
+              index < Math.round(rating * 2) ? "bg-signal-muted" : "bg-rule"
             }`}
           />
         ))}

@@ -14,10 +14,11 @@
 /**
  * Stable film identity.
  *
- * Derived from the Letterboxd short link (`https://boxd.it/XXXX`) — the same
- * code appears across `watched.csv`, `ratings.csv`, `diary.csv`, and
- * `reviews.csv`, which makes it a reliable join key. It is also opaque: unlike
- * a title slug it leaks nothing about what was watched.
+ * Derived from title and release year, deliberately *not* from the Letterboxd
+ * short link. An export contains two disjoint URI spaces — `watched.csv` and
+ * `ratings.csv` address the film, while `diary.csv` and `reviews.csv` address
+ * the diary entry — so joining on the URI splits every logged film in two. See
+ * `filmIdFrom` in the import layer for the full account.
  */
 export type FilmId = string;
 
@@ -61,6 +62,17 @@ export interface Library {
   readonly reviews: ReadonlyMap<FilmId, string>;
 }
 
+/**
+ * The ways a library can be grouped.
+ *
+ * A domain term rather than a graph one, deliberately. Each of these names a real
+ * property of the data — when a film was released, what it was rated, when it was
+ * watched, who made it — and so things that reason about a library (statistics,
+ * for one) can speak about them without knowing that a graph exists. How an axis
+ * is turned into hubs, and what it is called on screen, belongs to `graph/axes`.
+ */
+export type AxisId = "decade" | "rating" | "watchYear" | "director";
+
 export type DiagnosticSeverity = "warning" | "error";
 
 /**
@@ -100,6 +112,26 @@ export function decadeOf(film: Film): number | null {
 
 export function decadeLabel(decade: number): string {
   return `${decade}s`;
+}
+
+/**
+ * A rating as a compact tick, e.g. 4.5 -> "4½".
+ *
+ * Half-star glyphs rather than "4.5 stars": the label sits under a small hub
+ * node on the map, where it has to read as a mark on a scale, not a sentence.
+ */
+export function ratingLabel(rating: number): string {
+  const whole = Math.floor(rating);
+  const half = rating - whole >= RATING_STEP;
+  if (whole === 0) return "½";
+  return half ? `${whole}½` : String(whole);
+}
+
+/** The calendar year of an ISO `YYYY-MM-DD` date, or null if unreadable. */
+export function watchYearOf(watchedOn: string | null): number | null {
+  if (watchedOn === null) return null;
+  const year = Number(watchedOn.slice(0, 4));
+  return Number.isInteger(year) ? year : null;
 }
 
 export function isRating(value: number): boolean {

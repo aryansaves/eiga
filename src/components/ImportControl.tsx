@@ -24,8 +24,8 @@ export function ImportControl({
   readonly onFiles: (files: readonly File[]) => void;
 }) {
   return (
-    <label className="group focus-within:outline-tungsten block cursor-pointer text-right focus-within:outline-1 focus-within:outline-offset-8">
-      <span className="eiga-mark text-paper group-hover:text-tungsten text-xs transition-colors">
+    <label className="group focus-within:outline-signal block cursor-pointer text-right focus-within:outline-1 focus-within:outline-offset-8">
+      <span className="eiga-mark text-paper group-hover:text-signal text-xs transition-colors">
         Map mine
       </span>
       <span className="eiga-annotation mt-1.5 block">
@@ -82,7 +82,7 @@ export function ImportReport({
               >
                 <span
                   className={
-                    note.severity === "error" ? "text-tungsten" : "text-paper-dim"
+                    note.severity === "error" ? "text-signal" : "text-paper-dim"
                   }
                 >
                   {note.file || "selection"}

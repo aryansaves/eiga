@@ -7,12 +7,17 @@
  *
  * The one authored decision here is the hub spine. Left to itself d3-force
  * produces a symmetric blob with no reading order, so hubs are pinned along a
- * staggered horizontal band in sorted key order and films are seeded beside
- * their hub. Decade keys sort chronologically, which turns the map into
- * something that reads left-to-right through time; director keys sort
- * alphabetically, which is arbitrary but at least stable. The stagger is what
- * keeps neighbouring clusters from shouldering each other sideways into one
- * long horizontal smear. Films then drift where the forces take them.
+ * staggered horizontal band in *axis* order and films are seeded beside their
+ * hub. On an ordinal axis that turns the map into something that reads
+ * left-to-right through the scale — decades through time, ratings low to high;
+ * on a nominal axis the order is alphabetical, which is arbitrary but stable.
+ * The stagger is what keeps neighbouring clusters from shouldering each other
+ * sideways into one long horizontal smear. Films then drift where the forces
+ * take them.
+ *
+ * The graph's own spine edges are laid over that as a slack tether: the anchors
+ * do the placing, because deterministic placement is worth more than an organic
+ * chain, and the tether only stops the ends of a long scale from drifting apart.
  *
  * Seeding is deterministic — no `Math.random` — so the same library always
  * settles into recognisably the same map, and a reload does not shuffle a place
@@ -32,7 +37,7 @@ import {
 } from "d3-force";
 
 import { RATING_MAX, RATING_MIN } from "../domain/types.ts";
-import type { Graph, GraphEdgeKind, GraphNode } from "../graph/build.ts";
+import { orderedHubs, type Graph, type GraphEdgeKind, type GraphNode } from "../graph/build.ts";
 
 export interface LayoutNode extends GraphNode, SimulationNodeDatum {
   x: number;
@@ -56,6 +61,21 @@ export interface LayoutHandle {
   readonly nodes: readonly LayoutNode[];
   readonly edges: readonly LayoutEdge[];
   readonly simulation: Simulation<LayoutNode, LayoutEdge>;
+  /**
+   * Whether any node started from a previous position.
+   *
+   * The caller uses this to decide between settling silently and animating: a
+   * seeded layout is the same map being re-drawn, so the movement is the point.
+   * An unseeded one is a map appearing for the first time, where watching it
+   * assemble is a loading screen pretending to be an insight.
+   */
+  readonly seeded: boolean;
+}
+
+/** Where a node was before the graph changed, so it can migrate rather than jump. */
+export interface Position {
+  readonly x: number;
+  readonly y: number;
 }
 
 const FILM_RADIUS_MIN = 2.6;
@@ -76,13 +96,18 @@ export function hubRadius(degree: number): number {
   return 6 + Math.min(7, Math.sqrt(degree));
 }
 
-/** Evenly spaced, alternately offset anchors for hubs, in sorted key order. */
+/**
+ * Evenly spaced, alternately offset anchors for hubs.
+ *
+ * Takes the hubs already in axis order — the caller knows the scale, and
+ * re-deriving it from the id here would get it wrong, since `hub:rating:5` sorts
+ * after `hub:rating:45` as a string.
+ */
 function hubAnchors(
-  hubs: readonly GraphNode[],
+  ordered: readonly GraphNode[],
   width: number,
   height: number,
 ): ReadonlyMap<string, { x: number; y: number }> {
-  const ordered = [...hubs].sort((a, b) => a.id.localeCompare(b.id));
   const inset = Math.min(width * 0.15, 190);
   const span = Math.max(width - inset * 2, 1);
   // Adjacent clusters sit above and below the centre line so they interleave
@@ -114,15 +139,29 @@ function homeHubs(graph: Graph): ReadonlyMap<string, string> {
 /** Golden-angle offsets: deterministic, but organic rather than gridded. */
 const GOLDEN_ANGLE = 2.399963229728653;
 
+const LINK_DISTANCE: Record<GraphEdgeKind, number> = {
+  membership: 74,
+  session: 120,
+  spine: 240,
+};
+
+const LINK_STRENGTH: Record<GraphEdgeKind, number> = {
+  membership: 0.55,
+  session: 0.06,
+  spine: 0.05,
+};
+
 export function createLayout(
   graph: Graph,
   width: number,
   height: number,
+  previous?: ReadonlyMap<string, Position>,
 ): LayoutHandle {
-  const hubs = graph.nodes.filter((node) => node.kind === "hub");
-  const anchors = hubAnchors(hubs, width, height);
+  const ordered = orderedHubs(graph);
+  const anchors = hubAnchors(ordered, width, height);
   const home = homeHubs(graph);
   const centre = { x: width / 2, y: height / 2 };
+  let seeded = false;
 
   const nodes: LayoutNode[] = graph.nodes.map((node, index) => {
     const isHub = node.kind === "hub";
@@ -133,13 +172,22 @@ export function createLayout(
     const spread = isHub ? 0 : 34 + 5 * Math.sqrt(index);
     const angle = index * GOLDEN_ANGLE;
 
+    /*
+      A film that was already on screen starts where it was, so switching axes
+      reads as the same films re-sorting themselves rather than a new picture
+      cutting in. Hubs are not carried over: they belong to the axis, so they
+      simply appear at their new places and the films travel to them.
+    */
+    const seed = isHub ? undefined : previous?.get(node.id);
+    if (seed) seeded = true;
+
     return {
       ...node,
       radius: isHub ? hubRadius(node.degree) : filmRadius(node.rating),
       anchorX: anchor.x,
       anchorY: anchor.y,
-      x: anchor.x + spread * Math.cos(angle),
-      y: anchor.y + spread * Math.sin(angle),
+      x: seed ? seed.x : anchor.x + spread * Math.cos(angle),
+      y: seed ? seed.y : anchor.y + spread * Math.sin(angle),
     };
   });
 
@@ -155,9 +203,14 @@ export function createLayout(
       "link",
       forceLink<LayoutNode, LayoutEdge>(edges)
         .id((node) => node.id)
-        // Membership pulls firmly — it is the structure. Sessions only suggest.
-        .distance((edge) => (edge.kind === "membership" ? 74 : 120))
-        .strength((edge) => (edge.kind === "membership" ? 0.55 : 0.06)),
+        /*
+          Membership pulls firmly — it is the structure. The spine is a long slack
+          tether between neighbouring hubs, since the anchors already place them:
+          asking for a short distance here would drag the scale in on itself and
+          fight the anchoring. Sessions only suggest.
+        */
+        .distance((edge) => LINK_DISTANCE[edge.kind])
+        .strength((edge) => LINK_STRENGTH[edge.kind]),
     )
     // Hubs push hard so clusters read as separate places, not one mass.
     .force(
@@ -172,6 +225,16 @@ export function createLayout(
         .radius((node) => node.radius + 5)
         .iterations(2),
     )
+    /*
+      Every node is pulled toward its own anchor: hubs hard, to their place on the
+      axis; films only faintly, to the region their hub occupies.
+
+      The film pull is deliberately near-nothing. Membership links already hold a
+      film to its hub, and the anchor is a second, weaker claim on the same film —
+      enough to bias a cluster toward its side of the map, not enough to flatten
+      it into a rosette around a point. Raising it tightens every cluster and
+      makes the map more diagram than map, so it stays low.
+    */
     .force(
       "x",
       forceX<LayoutNode>((node) => node.anchorX).strength((node) =>
@@ -195,7 +258,16 @@ export function createLayout(
     */
     .stop();
 
-  return { nodes, edges, simulation };
+  return { nodes, edges, simulation, seeded };
+}
+
+/** Captures where everything currently is, to seed the next layout from. */
+export function positionsOf(
+  nodes: readonly LayoutNode[],
+): ReadonlyMap<string, Position> {
+  const positions = new Map<string, Position>();
+  for (const node of nodes) positions.set(node.id, { x: node.x, y: node.y });
+  return positions;
 }
 
 /**

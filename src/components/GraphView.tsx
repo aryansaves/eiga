@@ -6,13 +6,19 @@
  * The division of labour is strict, because mixing the two is what makes D3 and
  * React painful together:
  *
- *  - React owns structure and state. It renders one `<g>` per node and one
- *    `<line>` per edge, and expresses selection as `data-` attributes that
- *    globals.css turns into a visual hierarchy.
- *  - D3 owns coordinates. On every tick it writes `transform`, `x1`, `y1`, `x2`,
- *    `y2` straight to the DOM through refs. None of those attributes appear in
- *    JSX, so React never fights it for them, and a 60fps simulation costs zero
+ *  - React owns structure and state, and reads only the `Graph` to get them. It
+ *    renders one `<g>` per node and one `<line>` per edge, and expresses
+ *    selection as `data-` attributes that globals.css turns into a visual
+ *    hierarchy.
+ *  - D3 owns coordinates. The layout is created inside an effect — never during
+ *    render — and on every tick it writes `transform`, `x1`, `y1`, `x2`, `y2`
+ *    straight to the DOM through refs. None of those attributes appear in JSX,
+ *    so React never fights it for them, and a 60fps simulation costs zero
  *    reconciliation.
+ *
+ * The split is worth being pedantic about: radius is derived from the graph in
+ * both places rather than passed from the layout, so nothing in the render path
+ * needs to know that a simulation exists.
  *
  * Accessibility: hubs are in the tab order because they are the structure of the
  * map and there are only a handful. Films are not — a force graph with a hundred
@@ -21,18 +27,26 @@
  * selection.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior } from "d3-zoom";
 
 import { RATING_MAX } from "@/domain/types.ts";
-import { neighboursOf, type Graph } from "@/graph/build.ts";
+import {
+  neighboursOf,
+  type Graph,
+  type GraphEdge,
+  type GraphNode,
+} from "@/graph/build.ts";
 import {
   createLayout,
   endpoint,
+  filmRadius,
   fitToFrame,
+  hubRadius,
+  positionsOf,
   settle,
-  type LayoutEdge,
+  type LayoutHandle,
   type LayoutNode,
 } from "@/viz/layout.ts";
 
@@ -46,29 +60,43 @@ const DETAIL_ZOOM = 1.6;
  */
 const LAYOUT_BUCKET = 64;
 
+interface Viewport {
+  readonly width: number;
+  readonly height: number;
+}
+
 type ElementState = "rest" | "anchor" | "near" | "far";
 
 export interface GraphViewProps {
   readonly graph: Graph;
   readonly focusedId: string | null;
   readonly onFocus: (id: string | null) => void;
+  /**
+   * Ids of the films matching the current search, or null when not searching.
+   * Empty is meaningful and distinct from null: a search that found nothing.
+   */
+  readonly matches: ReadonlySet<string> | null;
+  /**
+   * Receives the live surface, for anything that needs the drawn map itself.
+   *
+   * Passed down rather than found with a query selector: exporting reads the same
+   * element the simulation is writing to, and that dependency should be visible
+   * in the types instead of resolved by a class name at runtime.
+   */
+  readonly surfaceRef?: RefObject<SVGSVGElement | null>;
 }
 
 function quantise(value: number): number {
   return Math.max(LAYOUT_BUCKET, Math.round(value / LAYOUT_BUCKET) * LAYOUT_BUCKET);
 }
 
-function endpointId(value: string | LayoutNode): string {
-  return typeof value === "string" ? value : value.id;
-}
-
-function filmDescription(node: LayoutNode): string {
+function filmDescription(node: GraphNode): string {
   const year = node.year === null ? "year unknown" : String(node.year);
   const rating = node.rating === null ? "unrated" : `rated ${node.rating}`;
   return `${node.label}, ${year}, ${rating}`;
 }
 
-export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
+export function GraphView({ graph, focusedId, onFocus, matches, surfaceRef }: GraphViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const viewportRef = useRef<SVGGElement>(null);
@@ -77,18 +105,46 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   /** Set once the user pans or zooms, after which the view is theirs to keep. */
   const exploredRef = useRef(false);
+  /**
+   * The live layout, and the exact viewport it should be framed in.
+   *
+   * Both are refs because they are read only from effects. The layout in
+   * particular must never be built during render: it is a mutable simulation, and
+   * a render React discards would leave one behind.
+   */
+  const layoutRef = useRef<LayoutHandle | null>(null);
+  const sizeRef = useRef<Viewport | null>(null);
+  /** True while a re-sort is in flight, so framing waits for the new shape. */
+  const animatingRef = useRef(false);
+  /** The graph the current layout was built from, to tell a re-sort from a resize. */
+  const lastGraphRef = useRef<Graph | null>(null);
 
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [size, setSize] = useState<Viewport | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
+    const measure = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      const next = { width, height };
+      // Mirrored into a ref so the layout effect can frame to the true size
+      // without taking a dependency on it and rebuilding on every pixel.
+      sizeRef.current = next;
+      setSize(next);
+    };
+
+    /*
+      Measured once directly, before observing. A ResizeObserver only delivers
+      while the document is being rendered, so a map opened in a background tab
+      would otherwise have no size at all until it was looked at.
+    */
+    const box = host.getBoundingClientRect();
+    measure(box.width, box.height);
+
     const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect;
-      if (box && box.width > 0 && box.height > 0) {
-        setSize({ width: box.width, height: box.height });
-      }
+      const next = entries[0]?.contentRect;
+      if (next) measure(next.width, next.height);
     });
     observer.observe(host);
     return () => observer.disconnect();
@@ -96,21 +152,12 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
 
   const layoutWidth = size ? quantise(size.width) : 0;
   const layoutHeight = size ? quantise(size.height) : 0;
+  const ready = layoutWidth > 0 && layoutHeight > 0;
 
-  const layout = useMemo(
-    () =>
-      layoutWidth && layoutHeight
-        ? createLayout(graph, layoutWidth, layoutHeight)
-        : null,
-    [graph, layoutWidth, layoutHeight],
-  );
+  // Structure, straight from the graph. Deliberately free of coordinates.
+  const films = useMemo(() => graph.nodes.filter((node) => node.kind === "film"), [graph]);
+  const hubs = useMemo(() => graph.nodes.filter((node) => node.kind === "hub"), [graph]);
 
-  /*
-    Zoom is installed before the simulation runs, because the framing pass below
-    has to go through this behaviour rather than around it — writing the viewport
-    transform directly would leave d3-zoom's internal state stale, and the user's
-    next scroll would snap the map back.
-  */
   useLayoutEffect(() => {
     const svg = svgRef.current;
     const viewport = viewportRef.current;
@@ -138,9 +185,44 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
     };
   }, []);
 
-  // Positions: written straight to the DOM, never through React state.
+  /*
+    Framing goes through the zoom behaviour rather than around it: writing the
+    viewport transform directly would leave d3-zoom's internal state stale, and
+    the user's next scroll would snap the map back. Never re-frames once the user
+    has moved the view themselves — re-centring someone's map out from under them
+    while they are reading it is worse than an imperfect fit.
+  */
+  const frameTo = (nodes: readonly LayoutNode[], viewport: Viewport | null) => {
+    const svg = svgRef.current;
+    const behaviour = zoomRef.current;
+    if (!svg || !behaviour || !viewport || exploredRef.current) return;
+
+    const fit = fitToFrame(nodes, viewport.width, viewport.height);
+    behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
+  };
+
+  // Coordinates: computed here, written straight to the DOM, never through state.
   useLayoutEffect(() => {
-    if (!layout) return;
+    if (!ready) return;
+
+    /*
+      Where everything currently is, carried into the new layout so films migrate
+      rather than jump. Read off the outgoing handle rather than tracked on every
+      tick — d3 mutates its node objects in place, so the old layout already holds
+      exactly where each one came to rest.
+    */
+    const previous = layoutRef.current ? positionsOf(layoutRef.current.nodes) : undefined;
+    const layout = createLayout(graph, layoutWidth, layoutHeight, previous);
+    layoutRef.current = layout;
+
+    /*
+      A re-sort is the graph itself changing — a new axis, or a library replacing
+      the demo — while films are already on screen. A resize also rebuilds the
+      layout, but nothing has been re-grouped, so it must not re-animate.
+    */
+    const resorting = layout.seeded && lastGraphRef.current !== graph;
+    lastGraphRef.current = graph;
+
     const { simulation } = layout;
 
     const paint = () => {
@@ -161,40 +243,70 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
       }
     };
 
+    const frame = () => frameTo(layout.nodes, sizeRef.current);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     /*
-      Settle before showing anything. Watching a hundred films fly out from a
-      common point is a loading screen pretending to be an insight, and it also
-      means the framing below has a stable shape to measure.
+      A map that is not re-sorting settles before it is shown. Watching a hundred
+      films fly out from a common point is a loading screen pretending to be an
+      insight, and it also means framing has a stable shape to measure.
+
+      A re-sort is the same films finding their places on a new axis, and there
+      the movement is the whole point — so it animates from where everything
+      already was. Unless motion is unwelcome, in which case the answer arrives
+      without the journey.
     */
-    settle(simulation);
+    if (!resorting || reducedMotion) {
+      settle(simulation);
+      paint();
+      // Only a first paint reclaims the view; a re-sort leaves the framing be.
+      if (!layout.seeded) exploredRef.current = false;
+      animatingRef.current = false;
+      frame();
+      if (reducedMotion) return;
+
+      // Re-heat gently, so the map is seen finding its last few millimetres.
+      simulation.on("tick", paint).alpha(0.18).restart();
+      return () => {
+        simulation.on("tick", null).stop();
+      };
+    }
+
+    animatingRef.current = true;
+    /*
+      The seed positions are written before the browser paints: films where they
+      already were, hubs at their new anchors. Without this the incoming hubs
+      would have no transform at all for one frame and appear stacked at the
+      origin, which reads as a glitch rather than a re-sort.
+    */
     paint();
-    exploredRef.current = false;
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    // Then re-heat gently, so the map is seen finding its last few millimetres.
-    simulation.on("tick", paint).alpha(0.18).restart();
+    simulation
+      .on("tick", paint)
+      .on("end", () => {
+        animatingRef.current = false;
+        // Frame the shape the map actually took, once it has stopped moving.
+        frame();
+      })
+      // Enough energy for a film to cross the map to a hub at the other end.
+      .alpha(0.9)
+      .restart();
 
     return () => {
-      simulation.on("tick", null);
-      simulation.stop();
+      simulation.on("tick", null).on("end", null).stop();
+      animatingRef.current = false;
     };
-  }, [layout]);
+  }, [graph, layoutWidth, layoutHeight, ready]);
 
   /*
-    Framing. Runs after the layout has settled and again on resize, but never
-    once the user has moved the view themselves — re-centring someone's map out
-    from under them while they are reading it is worse than an imperfect fit.
+    Reframing on a viewport change alone. The layout is quantised, so a resize
+    within one bucket does not rebuild it and the effect above does not run —
+    but the frame still has to follow the real size.
   */
   useLayoutEffect(() => {
-    const svg = svgRef.current;
-    const behaviour = zoomRef.current;
-    if (!layout || !svg || !behaviour || !size) return;
-    if (exploredRef.current) return;
-
-    const fit = fitToFrame(layout.nodes, size.width, size.height);
-    behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
-  }, [layout, size]);
+    const layout = layoutRef.current;
+    if (!layout || animatingRef.current) return;
+    frameTo(layout.nodes, size);
+  }, [size]);
 
   const neighbours = useMemo(
     () => (focusedId ? neighboursOf(graph, focusedId) : null),
@@ -207,10 +319,9 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
     return neighbours?.has(id) ? "near" : "far";
   };
 
-  const edgeState = (edge: LayoutEdge): ElementState => {
+  const edgeState = (edge: GraphEdge): ElementState => {
     if (!focusedId) return "rest";
-    const touches =
-      endpointId(edge.source) === focusedId || endpointId(edge.target) === focusedId;
+    const touches = edge.source === focusedId || edge.target === focusedId;
     return touches ? "near" : "far";
   };
 
@@ -226,16 +337,17 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
 
   const toggle = (id: string) => onFocus(id === focusedId ? null : id);
 
-  const films = layout?.nodes.filter((node) => node.kind === "film") ?? [];
-  const hubs = layout?.nodes.filter((node) => node.kind === "hub") ?? [];
-
   return (
     <div ref={hostRef} className="eiga-grid relative h-full w-full">
       <svg
-        ref={svgRef}
+        ref={(el) => {
+          svgRef.current = el;
+          if (surfaceRef) surfaceRef.current = el;
+        }}
         className="eiga-graph"
         viewBox={`0 0 ${size?.width ?? 0} ${size?.height ?? 0}`}
         data-focused={focusedId ? "true" : "false"}
+        data-searching={matches ? "true" : "false"}
         role="group"
         aria-label={`Map of ${films.length} films across ${hubs.length} ${graph.hubKind} groups`}
         // Clicking the surface itself — not a node — releases the anchor.
@@ -244,64 +356,79 @@ export function GraphView({ graph, focusedId, onFocus }: GraphViewProps) {
         }}
       >
         <g ref={viewportRef}>
+          {/*
+            Nothing is drawn until the host has been measured. One render would
+            otherwise mount every node before the layout exists, and a pile of
+            dots at the origin is not a map.
+          */}
           <g>
-            {layout?.edges.map((edge) => (
-              <line
-                key={edge.id}
-                ref={registerEdge(edge.id)}
-                className="eiga-edge"
-                data-kind={edge.kind}
-                data-state={edgeState(edge)}
-              />
-            ))}
+            {ready &&
+              graph.edges.map((edge) => (
+                <line
+                  key={edge.id}
+                  ref={registerEdge(edge.id)}
+                  className="eiga-edge"
+                  data-kind={edge.kind}
+                  data-state={edgeState(edge)}
+                />
+              ))}
           </g>
 
           <g>
-            {films.map((node) => (
-              <g
-                key={node.id}
-                ref={registerNode(node.id)}
-                className="eiga-node eiga-film"
-                data-state={nodeState(node.id)}
-                data-loved={node.rating === RATING_MAX ? "true" : "false"}
-                role="button"
-                tabIndex={-1}
-                aria-label={filmDescription(node)}
-                aria-pressed={node.id === focusedId}
-                onClick={() => toggle(node.id)}
-              >
-                <circle r={node.radius} />
-                <text className="eiga-label" y={node.radius + 11}>
-                  {node.label}
-                </text>
-              </g>
-            ))}
+            {ready &&
+              films.map((node) => {
+                const radius = filmRadius(node.rating);
+                return (
+                  <g
+                    key={node.id}
+                    ref={registerNode(node.id)}
+                    className="eiga-node eiga-film"
+                    data-state={nodeState(node.id)}
+                    data-loved={node.rating === RATING_MAX ? "true" : "false"}
+                    data-match={matches ? String(matches.has(node.id)) : undefined}
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={filmDescription(node)}
+                    aria-pressed={node.id === focusedId}
+                    onClick={() => toggle(node.id)}
+                  >
+                    <circle r={radius} />
+                    <text className="eiga-label" y={radius + 11}>
+                      {node.label}
+                    </text>
+                  </g>
+                );
+              })}
           </g>
 
           <g>
-            {hubs.map((node) => (
-              <g
-                key={node.id}
-                ref={registerNode(node.id)}
-                className="eiga-node eiga-hub"
-                data-state={nodeState(node.id)}
-                role="button"
-                tabIndex={0}
-                aria-label={`${node.label}, ${node.degree} films`}
-                aria-pressed={node.id === focusedId}
-                onClick={() => toggle(node.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  toggle(node.id);
-                }}
-              >
-                <circle r={node.radius} />
-                <text className="eiga-label" y={-(node.radius + 8)}>
-                  {node.label}
-                </text>
-              </g>
-            ))}
+            {ready &&
+              hubs.map((node) => {
+                const radius = hubRadius(node.degree);
+                return (
+                  <g
+                    key={node.id}
+                    ref={registerNode(node.id)}
+                    className="eiga-node eiga-hub"
+                    data-state={nodeState(node.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${node.label}, ${node.degree} films`}
+                    aria-pressed={node.id === focusedId}
+                    onClick={() => toggle(node.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      toggle(node.id);
+                    }}
+                  >
+                    <circle r={radius} />
+                    <text className="eiga-label" y={-(radius + 8)}>
+                      {node.label}
+                    </text>
+                  </g>
+                );
+              })}
           </g>
         </g>
       </svg>

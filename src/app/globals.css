@@ -21,24 +21,34 @@
   production build require an outbound request to fonts.googleapis.com.
 */
 @theme {
-  /* Warm-black base, deepest to raised. */
-  --color-void: #0a0908;
-  --color-ink: #100f0d;
-  --color-surface: #171613;
-  --color-raised: #1e1c19;
+  /* Graphite base, deepest to raised. Cool and neutral, not warm-black. */
+  --color-void: #101114;
+  --color-ink: #15171a;
+  --color-surface: #191b1f;
+  --color-raised: #212429;
 
   /* Hairlines and cartographic marks. */
-  --color-rule: #2a2723;
-  --color-rule-soft: #1c1a17;
+  --color-rule: #26292e;
+  --color-rule-soft: #1a1d21;
 
   /* Off-white ink, primary to annotation. */
-  --color-paper: #ece8e0;
-  --color-paper-mid: #a8a29a;
-  --color-paper-dim: #6d6862;
+  --color-paper: #e9e7e2;
+  --color-paper-mid: #a2a6a8;
+  --color-paper-dim: #6b6f73;
 
-  /* The single accent: tungsten. Signals state and emphasis, never category. */
-  --color-tungsten: #d9a05b;
-  --color-tungsten-deep: #9a6c34;
+  /*
+    The single accent: citron. Signals state and emphasis, never category.
+
+    Split into three strengths and rationed deliberately. Citron is far louder
+    than the amber it replaces, and used freely it stops reading as cinema and
+    starts reading as a developer tool. Full strength is reserved for one thing
+    at a time — the selected anchor and the focus ring. The muted step carries
+    the five-star films, which are sparse but not singular. The deep step is for
+    lit edges, where a bright line would out-shout the nodes it connects.
+  */
+  --color-signal: #c8f24e;
+  --color-signal-muted: #a9cc42;
+  --color-signal-deep: #5f7a22;
 
   --font-display:
     ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
@@ -92,7 +102,7 @@ body {
 
 /* Focus visibility must survive the quiet palette. */
 :focus-visible {
-  outline: 1px solid var(--color-tungsten);
+  outline: 1px solid var(--color-signal);
   outline-offset: 2px;
 }
 
@@ -139,6 +149,21 @@ body {
     stroke 260ms ease;
 }
 
+/*
+  The spine: hub-to-hub links along an ordinal axis. It is the backbone of the
+  map, so it is the one edge drawn at full strength — but in rule grey, not in
+  the accent. Structure should be legible without being loud.
+*/
+.eiga-edge[data-kind="spine"] {
+  stroke: var(--color-rule);
+  stroke-width: 1.25;
+}
+
+/* Membership is the common case, so it sits back and lets the spine read. */
+.eiga-edge[data-kind="membership"] {
+  opacity: 0.55;
+}
+
 /* Sessions are a garnish over the hub backbone, so they read as a dotted trace. */
 .eiga-edge[data-kind="session"] {
   stroke-dasharray: 1 3;
@@ -154,10 +179,12 @@ body {
 
 /*
   The one categorical use of the accent: films rated five. Sparse by definition,
-  so it reads as a constellation of favourites rather than a colour legend.
+  so it reads as a constellation of favourites rather than a colour legend. The
+  muted step, not the full one — on a large library the bright citron turns a
+  hundred small dots into a rash.
 */
 .eiga-film[data-loved="true"] circle {
-  fill: var(--color-tungsten);
+  fill: var(--color-signal-muted);
 }
 
 .eiga-film .eiga-label {
@@ -203,12 +230,17 @@ body {
 }
 
 .eiga-graph .eiga-edge[data-state="near"] {
-  stroke: var(--color-tungsten-deep);
+  stroke: var(--color-signal-deep);
   opacity: 0.9;
 }
 
+/*
+  The anchor is the only place full-strength citron appears, and there is never
+  more than one of them on screen. That scarcity is what keeps the accent
+  meaning "here" rather than becoming a decorative colour.
+*/
 .eiga-graph .eiga-node[data-state="anchor"] circle {
-  stroke: var(--color-paper);
+  stroke: var(--color-signal);
   stroke-width: 1.5;
 }
 
@@ -220,6 +252,28 @@ body {
 /* One name at a time, at any zoom level. */
 .eiga-graph .eiga-node:hover .eiga-label,
 .eiga-graph .eiga-node:focus-visible .eiga-label {
+  opacity: 1;
+  fill: var(--color-paper);
+}
+
+/*
+  Search. The same idea as focus: films that do not match recede, and the hubs
+  and spine stay lit so the map keeps its shape while you read the answer. A
+  search that emptied the screen would make you lose your place in it.
+
+  Matches are named outright regardless of zoom, since a dot you cannot read is
+  not an answer to "where is it".
+*/
+.eiga-graph[data-searching="true"] .eiga-film[data-match="false"] {
+  opacity: 0.08;
+}
+
+.eiga-graph[data-searching="true"] .eiga-film[data-match="true"] circle {
+  stroke: var(--color-signal);
+  stroke-width: 1.25;
+}
+
+.eiga-graph[data-searching="true"] .eiga-film[data-match="true"] .eiga-label {
   opacity: 1;
   fill: var(--color-paper);
 }

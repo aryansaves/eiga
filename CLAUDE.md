@@ -37,15 +37,27 @@ EIGA should feel like entering a quiet **cinematic observatory / personal atlas*
 The fact that the name is Japanese is not a reason to add stereotypical Japanese decoration. Avoid torii, brush fonts, kanji flourishes, anime styling, neon cyberpunk, or other gimmicks unless a future product decision explicitly calls for them.
 
 Visual character:
-- warm-black / charcoal base
+- neutral graphite base, cooled rather than warm-black
 - off-white typography
-- one restrained cinematic accent, initially tungsten/amber
+- one restrained accent — citron (`--color-signal`), rationed across three strengths
 - thin rules and faint cartographic/grid marks
 - strong editorial typography
 - generous negative space
 - calm motion
 - sparse controls
 - subtle texture only when it adds atmosphere
+
+Citron is louder than the tungsten/amber this brief originally called for, so it is
+rationed rather than applied freely:
+
+- `--color-signal` — the selected anchor, the focus ring, the active axis marker. At
+  most one node on screen.
+- `--color-signal-muted` — 5★ film fills, which can number in the dozens.
+- `--color-signal-deep` — edges lit by a focus.
+
+The accent never touches body text, large fills, or the grid. If it ever reads as a
+developer tool rather than an atlas, darken `--color-signal-muted` further; do not
+add a second colour.
 
 Avoid:
 - generic SaaS dashboards
@@ -70,6 +82,28 @@ Avoid:
 - Labels should be selective and zoom-aware.
 - Motion should communicate state changes, not decorate everything.
 - The graph should feel authored, not like default D3 output.
+
+### Topology
+
+Films connect to attribute hubs, never to each other. Ten films by one director are
+ten edges to one node, not forty-five edges between films — the bipartite shape is
+what keeps a large library legible.
+
+Hubs come from exactly one **axis** at a time, and axes are mutually exclusive rather
+than layered. Rating is a valid axis on those terms: `4½` is a hub like `1990s` is,
+each film joins one band, and the graph stays bipartite. What remains forbidden is
+rating as a *second simultaneous* membership on top of another axis, which is the
+case that reintroduces cliques.
+
+An ordinal axis (decade, rating, watch year) chains its hubs low-to-high with
+`spine` edges, so the map is one connected component and the scale is structure the
+eye can follow rather than a coincidence of where the anchors were placed. A nominal
+axis (director) has no order to chain and is allowed to be several islands.
+
+Note that a Letterboxd export carries **no director or actor data** — its columns are
+`Date, Name, Year, Letterboxd URI, Rating, Rewatch, Review, Tags, Watched Date`. The
+director axis works on the authored demo only, and `axesFor` withholds any axis a
+library cannot speak to rather than offering a dead control.
 
 ## Engineering
 
