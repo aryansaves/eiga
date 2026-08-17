@@ -1,26 +1,241 @@
-@import "tailwindcss";
+/*
+  Content sources are declared explicitly rather than auto-detected. Tailwind's
+  automatic detection walks up to the project root, which is both wasteful and
+  fragile — anything unreadable up there (editor mounts, device files, private
+  dotfiles) fails the whole CSS build. Scanning only `src/` is faster and means
+  the build depends on nothing outside the application.
+*/
+@import "tailwindcss" source(none);
+@source "../**/*.{ts,tsx}";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  EIGA design tokens.
+
+  Dark-only by intent: EIGA is an instrument you look into, not a document you
+  read in two lighting modes. There is deliberately no `prefers-color-scheme`
+  branch here.
+
+  Typefaces are resolved from system stacks so the app builds and runs with no
+  network dependency. Self-hosting a display face via `next/font/local` is the
+  intended upgrade; `next/font/google` is avoided because it makes the
+  production build require an outbound request to fonts.googleapis.com.
+*/
+@theme {
+  /* Warm-black base, deepest to raised. */
+  --color-void: #0a0908;
+  --color-ink: #100f0d;
+  --color-surface: #171613;
+  --color-raised: #1e1c19;
+
+  /* Hairlines and cartographic marks. */
+  --color-rule: #2a2723;
+  --color-rule-soft: #1c1a17;
+
+  /* Off-white ink, primary to annotation. */
+  --color-paper: #ece8e0;
+  --color-paper-mid: #a8a29a;
+  --color-paper-dim: #6d6862;
+
+  /* The single accent: tungsten. Signals state and emphasis, never category. */
+  --color-tungsten: #d9a05b;
+  --color-tungsten-deep: #9a6c34;
+
+  --font-display:
+    ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+    "URW Palladio L", "Liberation Serif", Georgia, serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-void);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+  Faint cartographic grid. Atmosphere only — it must never compete with the
+  graph, so it sits far below the content in contrast.
+*/
+.eiga-grid {
+  background-image:
+    linear-gradient(to right, var(--color-rule-soft) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-rule-soft) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: center center;
+}
+
+/* Wide tracking for the wordmark and section marks: archival, not decorative. */
+.eiga-mark {
+  font-family: var(--font-sans);
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+}
+
+.eiga-annotation {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-paper-dim);
+}
+
+/* Focus visibility must survive the quiet palette. */
+:focus-visible {
+  outline: 1px solid var(--color-tungsten);
+  outline-offset: 2px;
+}
+
+/*
+  Graph surface.
+
+  All visual state is expressed as `data-` attributes that React sets on the
+  node and edge groups, and read here so the cascade does the work: one
+  attribute change restyles a dot, its label and its edges together. D3 writes
+  transforms and nothing else.
+*/
+.eiga-graph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Let d3-zoom handle gestures instead of the browser scrolling the page. */
+  touch-action: none;
+}
+
+.eiga-graph text {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* A halo, so a label stays readable where it crosses an edge. */
+.eiga-graph .eiga-label {
+  paint-order: stroke;
+  stroke: var(--color-void);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  text-anchor: middle;
+}
+
+.eiga-node {
+  cursor: pointer;
+  transition: opacity 260ms ease;
+}
+
+.eiga-edge {
+  stroke: var(--color-rule);
+  stroke-width: 1;
+  transition:
+    opacity 260ms ease,
+    stroke 260ms ease;
+}
+
+/* Sessions are a garnish over the hub backbone, so they read as a dotted trace. */
+.eiga-edge[data-kind="session"] {
+  stroke-dasharray: 1 3;
+  opacity: 0.5;
+}
+
+.eiga-film circle {
+  fill: var(--color-paper-mid);
+  transition:
+    fill 200ms ease,
+    stroke 200ms ease;
+}
+
+/*
+  The one categorical use of the accent: films rated five. Sparse by definition,
+  so it reads as a constellation of favourites rather than a colour legend.
+*/
+.eiga-film[data-loved="true"] circle {
+  fill: var(--color-tungsten);
+}
+
+.eiga-film .eiga-label {
+  font-size: 10px;
+  fill: var(--color-paper-mid);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+/* Hubs are structure, not subject: an outline and a small archival label. */
+.eiga-hub circle {
+  fill: var(--color-ink);
+  stroke: var(--color-paper-dim);
+  stroke-width: 1;
+}
+
+.eiga-hub .eiga-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  fill: var(--color-paper-dim);
+}
+
+/* Zoom-aware disclosure: titles arrive only once you have leaned in. */
+.eiga-graph[data-detail="near"] .eiga-film .eiga-label {
+  opacity: 0.8;
+}
+
+/*
+  Focus. The anchor brightens, its neighbours stay lit, and everything else
+  recedes instead of disappearing — the map has to keep its shape.
+*/
+.eiga-graph[data-focused="true"] .eiga-node[data-state="far"] {
+  opacity: 0.12;
+}
+
+.eiga-graph[data-focused="true"] .eiga-edge[data-state="far"] {
+  opacity: 0.07;
+}
+
+.eiga-graph .eiga-node[data-state="near"] .eiga-label {
+  opacity: 0.75;
+}
+
+.eiga-graph .eiga-edge[data-state="near"] {
+  stroke: var(--color-tungsten-deep);
+  opacity: 0.9;
+}
+
+.eiga-graph .eiga-node[data-state="anchor"] circle {
+  stroke: var(--color-paper);
+  stroke-width: 1.5;
+}
+
+.eiga-graph .eiga-node[data-state="anchor"] .eiga-label {
+  opacity: 1;
+  fill: var(--color-paper);
+}
+
+/* One name at a time, at any zoom level. */
+.eiga-graph .eiga-node:hover .eiga-label,
+.eiga-graph .eiga-node:focus-visible .eiga-label {
+  opacity: 1;
+  fill: var(--color-paper);
+}
+
+/*
+  Motion explains state changes here (focus, reveal, recede). When the user has
+  asked for less of it, the end state must still be correct — so transitions
+  collapse rather than being replaced with something decorative.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
