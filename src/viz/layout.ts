@@ -16,12 +16,12 @@
  * **A hub map** pins hubs along a staggered horizontal band in *axis* order and
  * seeds films beside their hub. On an ordinal axis that reads left-to-right
  * through the scale — decades through time, ratings low to high; on a nominal axis
- * the order is alphabetical, which is arbitrary but stable. The stagger is what
- * keeps neighbouring clusters from shouldering each other sideways into one long
- * horizontal smear. The graph's own spine edges are laid over that as a slack
- * tether: the anchors do the placing, because deterministic placement is worth
- * more than an organic chain, and the tether only stops the ends of a long scale
- * from drifting apart.
+ * the order is alphabetical, which is arbitrary but stable. How far apart they sit
+ * follows how far their clusters reach rather than how wide the window is, and the
+ * stagger is part of that arithmetic rather than a flourish — see `hubAnchors`. The
+ * graph's own spine edges are laid over that as a slack tether: the anchors do the
+ * placing, because deterministic placement is worth more than an organic chain, and
+ * the tether only stops the ends of a long scale from drifting apart.
  *
  * Neither map is a plotted figure. A layout that placed every node exactly would
  * be a diagram, so both are given a reason to be irregular — the hub map by
@@ -117,28 +117,119 @@ export function hubRadius(degree: number): number {
 }
 
 /**
+ * How far a hub's films spread out around it, in layout pixels.
+ *
+ * An empirical fit to the forces rather than a rule imposed on them. Charge and
+ * collide already scale a cluster with its degree — measured on isolated clusters,
+ * a hub holding 4 films reaches 94px and one holding 124 reaches 192px — so what
+ * this exists for is to *predict* that reach before the simulation has run, which
+ * is the one thing `hubAnchors` needs and cannot get from the simulation itself.
+ *
+ * The square root is the shape the measurement has: reach ÷ √degree flattens out
+ * around 17–19 across the whole range while reach ÷ degree keeps falling, which is
+ * area per film staying roughly constant. `BASE + 11√d` sits on the two ends of the
+ * measured curve and 5–15px *outside* it in the middle — deliberately the generous
+ * direction, since allotting a cluster too much room costs a little scale and
+ * allotting it too little strands films beside a hub they do not belong to.
+ *
+ * Note this is not `LINK_DISTANCE.membership`, and deliberately not fed into it.
+ * The link distance is a floor the charge then exceeds; scaling it by degree as
+ * well would push clusters wider than this predicts and defeat the spacing it is
+ * used for.
+ */
+
+/** Reach of a hub holding one film — near enough the membership link distance. */
+const CLUSTER_BASE = 72;
+/** Added per film, square-rooted. Fitted to the measured 94px…192px curve. */
+const CLUSTER_PER_FILM = 11;
+
+/**
+ * Clear space between the edges of two clusters.
+ *
+ * Small on purpose. This is not breathing room — `clusterReach` already errs wide
+ * — it is the margin that keeps two clusters legibly separate places rather than
+ * one continuous field, and every pixel of it is paid for in scale, because a
+ * wider band means `fitToFrame` draws the whole map smaller.
+ */
+const CLUSTER_GAP = 40;
+
+export function clusterReach(degree: number): number {
+  return CLUSTER_BASE + CLUSTER_PER_FILM * Math.sqrt(Math.max(degree, 1));
+}
+
+/**
  * Evenly spaced, alternately offset anchors for hubs.
  *
  * Takes the hubs already in axis order — the caller knows the scale, and
  * re-deriving it from the id here would get it wrong, since `hub:rating:5` sorts
  * after `hub:rating:45` as a string.
+ *
+ * Spacing is a function of what the clusters need rather than of the viewport.
+ * Fitting a fixed band to the window is what broke at scale: twenty watch years
+ * across a 900px band leaves 47px between hubs, clusters interpenetrate, and a
+ * fifth of the films settle nearer a hub they do not belong to — measured at
+ * 102 of 500. The band is instead as wide as the reaches make it and centred, and
+ * `fitToFrame` scales the result down; a library that needs more room is drawn
+ * smaller, which is the honest trade.
+ *
+ * Two separations have to hold, and only one of them is the obvious one:
+ *
+ *  - **Adjacent hubs** are already 2 × `rise` apart vertically, so the horizontal
+ *    step they need is the leg of a right triangle, not the whole distance. This is
+ *    why the stagger is load-bearing rather than decorative, and why the band does
+ *    not have to be twice as wide as it is.
+ *  - **Hubs two apart** sit on the *same* side of the centre line with nothing
+ *    between them, so they get no help from the stagger at all. This is the binding
+ *    constraint, and the one that was failing: the worst cluster overlap on a real
+ *    library was between hubs 4 and 6, never between neighbours.
  */
 function hubAnchors(
   ordered: readonly GraphNode[],
   width: number,
   height: number,
 ): ReadonlyMap<string, { x: number; y: number }> {
-  const inset = Math.min(width * 0.15, 190);
-  const span = Math.max(width - inset * 2, 1);
   // Adjacent clusters sit above and below the centre line so they interleave
   // instead of pushing each other outwards.
   const rise = Math.min(height * 0.16, 150);
 
+  const reach = ordered.map((hub) => clusterReach(hub.degree));
+  /** Centre-to-centre distance two clusters need to stay clear of each other. */
+  const need = (a: number, b: number) => reach[a] + reach[b] + CLUSTER_GAP;
+
+  const steps = ordered.map((_, i) => {
+    if (i + 1 >= ordered.length) return 0;
+
+    // Adjacent: the stagger covers 2 × rise of it, so solve for the leg.
+    const across = need(i, i + 1);
+    const leg = Math.sqrt(Math.max(0, across * across - 4 * rise * rise));
+
+    /*
+      Same side: two steps have to cover it between them, so each carries half.
+      Both windows that contain this gap are considered, which is what makes the
+      sum work out — the pair (i, i+2) is covered by half from this step and half
+      from the next, where it appears as (i+1)−1 to (i+1)+1.
+    */
+    let half = 0;
+    if (i + 2 < ordered.length) half = Math.max(half, need(i, i + 2) / 2);
+    if (i > 0) half = Math.max(half, need(i - 1, i + 1) / 2);
+
+    return Math.max(leg, half);
+  });
+
+  const xs: number[] = [];
+  let x = 0;
+  ordered.forEach((_, index) => {
+    if (index > 0) x += steps[index - 1];
+    xs.push(x);
+  });
+
+  // Centred, so a map that outgrows the viewport grows in both directions.
+  const shift = width / 2 - (xs[xs.length - 1] ?? 0) / 2;
+
   const anchors = new Map<string, { x: number; y: number }>();
   ordered.forEach((hub, index) => {
-    const t = ordered.length === 1 ? 0.5 : index / (ordered.length - 1);
     anchors.set(hub.id, {
-      x: inset + t * span,
+      x: xs[index] + shift,
       y: height / 2 + (index % 2 === 0 ? -rise : rise),
     });
   });
@@ -237,6 +328,16 @@ export interface YearMark {
   /** Radians from the centre, so the tick can lie along the radius. */
   readonly angle: number;
 }
+
+/**
+ * Half-length of a year tick, in layout px. Short: it points, it does not divide.
+ *
+ * Lives here rather than in the component that draws it because it is map
+ * geometry, and two callers need it to agree: the renderer places the year label
+ * beyond the tick, and `viz/labels.ts` has to know where that puts it in order to
+ * keep a film's title off it.
+ */
+export const MARK_TICK = 7;
 
 /** How far beyond the outermost turn the films with no date are scattered. */
 const UNDATED_GAP = 52;

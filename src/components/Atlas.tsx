@@ -16,11 +16,13 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { AxisControl } from "@/components/AxisControl.tsx";
+import { FilterControl } from "@/components/FilterControl.tsx";
 import { GraphView } from "@/components/GraphView.tsx";
 import { ImportControl, ImportReport } from "@/components/ImportControl.tsx";
 import { Inspector } from "@/components/Inspector.tsx";
 import { SearchControl } from "@/components/SearchControl.tsx";
 import { demoLibrary } from "@/domain/demo.ts";
+import { filtersFor, narrow, type FilterId } from "@/domain/filters.ts";
 import { searchFilms } from "@/domain/search.ts";
 import { observe } from "@/domain/stats.ts";
 import { axesFor, resolveAxis, type AxisId } from "@/graph/axes.ts";
@@ -43,6 +45,12 @@ export function Atlas() {
   */
   const [axis, setAxis] = useState<AxisId>("diary");
   const [query, setQuery] = useState("");
+  /*
+    Highlights, unlike the axis, are a set: they union rather than replace. Held
+    as ids and resolved by `narrow`, so a chip pressed on one library and taken
+    away by the next import simply stops applying instead of dimming everything.
+  */
+  const [highlights, setHighlights] = useState<readonly FilterId[]>([]);
   const [dropping, setDropping] = useState(false);
   const [saving, setSaving] = useState<SaveState>("idle");
   /** The drawn map, handed up by GraphView so it can be exported as it appears. */
@@ -99,8 +107,20 @@ export function Atlas() {
     and films are the one thing that survives every axis. Recomputed on each
     keystroke, which is a folded substring test over a few hundred titles — a
     debounce would add a state machine to save nothing measurable.
+
+    `lit` is the one answer the map is drawn from; `found` is the search's own
+    count, which the field reports separately because "3 films" has to mean the
+    query even while a highlight is narrowing it further.
   */
-  const matches = useMemo(() => searchFilms(library.films, query), [library, query]);
+  const filters = useMemo(() => filtersFor(library), [library]);
+  const lit = useMemo(() => narrow(library, highlights, query), [library, highlights, query]);
+  const found = useMemo(() => searchFilms(library.films, query), [library, query]);
+
+  const toggleHighlight = useCallback((id: FilterId) => {
+    setHighlights((current) =>
+      current.includes(id) ? current.filter((held) => held !== id) : [...current, id],
+    );
+  }, []);
 
   const load = useCallback(async (files: readonly File[]) => {
     const result = await importLetterboxdFiles([...files]);
@@ -184,7 +204,7 @@ export function Atlas() {
           graph={graph}
           focusedId={focused}
           onFocus={setFocusedId}
-          matches={matches}
+          lit={lit}
           surfaceRef={surfaceRef}
         />
       </div>
@@ -195,7 +215,12 @@ export function Atlas() {
           <p className="eiga-annotation mt-2">Your cinema, mapped.</p>
           <div className="pointer-events-auto">
             <AxisControl options={options} active={active.id} onSelect={setAxis} />
-            <SearchControl query={query} onQuery={setQuery} found={matches?.size ?? null} />
+            <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
+            <FilterControl
+              options={filters}
+              active={highlights}
+              onToggle={toggleHighlight}
+            />
           </div>
         </div>
         <div className="pointer-events-auto flex flex-col items-end gap-4">

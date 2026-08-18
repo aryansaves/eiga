@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildGraph, byDecade } from "../graph/build.ts";
+import { buildGraph, byDecade, type GraphNode } from "../graph/build.ts";
 import { buildThread } from "../graph/thread.ts";
 import { filtersFor, narrow, type FilterId } from "./filters.ts";
 import { searchFilms } from "./search.ts";
@@ -141,7 +141,14 @@ test("what the search returns is what a film node carries", () => {
   assert.equal(found.size, 1);
 
   for (const graph of [buildGraph(source, byDecade), buildThread(source)]) {
-    const lit = graph.nodes.filter((node) => node.filmId !== null && found.has(node.filmId));
+    /*
+      Annotated, not inferred: line below tests `found.has(lit[0].id)`, and
+      leaving the type to inference makes `lit` depend on the narrowing of `found`
+      which depends on this block — a circularity, not a real ambiguity.
+    */
+    const lit: readonly GraphNode[] = graph.nodes.filter(
+      (node) => node.filmId !== null && found.has(node.filmId),
+    );
     assert.equal(lit.length, 1, `one film lit on the ${graph.shape} map`);
     assert.equal(lit[0].label, "Stalker");
     // The id is deliberately *not* what search answers in — this is the trap.

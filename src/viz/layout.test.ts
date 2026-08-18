@@ -13,6 +13,7 @@ import {
 import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs } from "../graph/build.ts";
 import { buildThread, unthreaded } from "../graph/thread.ts";
 import {
+  clusterReach,
   createLayout,
   positionsOf,
   settle,
@@ -229,6 +230,138 @@ test("the same library always settles into the same map", () => {
 
   // No Math.random anywhere in the layout, so this is exact, not approximate.
   assert.deepEqual(positionsOf(once.nodes), positionsOf(twice.nodes));
+});
+
+/* --- Room for the clusters ------------------------------------------------ */
+
+/**
+ * `films` films spread evenly across `hubs` calendar years.
+ *
+ * Hub *count* is the variable that matters, and the watch-year axis is the one
+ * where a real user supplies it: someone who has logged since 2011 has fifteen
+ * years, and nothing about that library is unusual.
+ */
+function bucketed(films: number, hubs: number): Library {
+  const list: Film[] = [];
+  const watches: WatchEvent[] = [];
+  const ratings = new Map<FilmId, number>();
+
+  for (let i = 0; i < films; i += 1) {
+    const id = `f${String(i).padStart(4, "0")}`;
+    list.push({ id, title: `Film ${i}`, year: 1990, uri: null, directors: [] });
+    // Every band, so dot radii vary across the full range as they do live.
+    ratings.set(id, RATING_MIN + (i % 10) * RATING_STEP);
+    watches.push({ filmId: id, watchedOn: `${2010 + (i % hubs)}-06-15`, rewatch: false });
+  }
+
+  return { films: list, watches, ratings, reviews: new Map(), likes: new Set() };
+}
+
+/*
+  The assertion that would have caught it, and the reason it is written against hub
+  count rather than film count.
+
+  Spacing used to fit a fixed band to the viewport, so the step between hubs shrank
+  as hubs were added: twenty watch years across a 900px band left 47px between them,
+  clusters interpenetrated, and *102 of 500 films* settled nearer a hub they did not
+  belong to. The map still looked composed and every edge was still correct, which is
+  what made it quiet.
+
+  Note what is deliberately *not* the assertion here: whether two dots overlap inside
+  a cluster. They never did — charge and collide already scale a cluster with its
+  degree — so that test would have passed on the broken layout and pinned nothing.
+  It is kept below anyway, but as a guard on collide, not as the measure of this.
+*/
+for (const [films, hubs] of [
+  [124, 15],
+  [500, 20],
+] as const) {
+  test(`${films} films across ${hubs} hubs all stay beside their own hub`, () => {
+    const graph = buildGraph(bucketed(films, hubs), byWatchYear);
+    const layout = createLayout(graph, WIDTH, HEIGHT);
+    settle(layout.simulation);
+
+    const result = placement(layout.nodes, membershipsOf(graph.edges));
+    assert.equal(result.total, films);
+    assert.equal(
+      result.correct,
+      result.total,
+      `${result.total - result.correct} of ${result.total} films settled nearer a hub they do not belong to`,
+    );
+  });
+}
+
+test("hubs are given room for the clusters they hold, not an even share", () => {
+  /*
+    Checked on the anchors rather than on where the hubs settle, because the anchors
+    are the claim this makes: charge then pushes hubs further apart than their
+    anchors, so a settled map would pass on spacing the layout never asked for.
+
+    Every pair, not just neighbours. Adjacent hubs are staggered above and below the
+    centre line and so get their separation partly for free; hubs *two* apart sit on
+    the same side with nothing between them, and that is where the overlap always
+    showed up — hub 4 against hub 6, never 4 against 5.
+  */
+  const graph = buildGraph(bucketed(500, 20), byWatchYear);
+  const layout = createLayout(graph, WIDTH, HEIGHT);
+  const at = new Map(layout.nodes.map((node) => [node.id, node]));
+
+  const hubs = orderedHubs(graph)
+    .map((hub) => at.get(hub.id))
+    .filter((hub): hub is LayoutNode => hub !== undefined);
+  assert.equal(hubs.length, 20);
+
+  for (let a = 0; a < hubs.length; a += 1) {
+    for (let b = a + 1; b < hubs.length; b += 1) {
+      const apart = Math.hypot(
+        hubs[b].anchorX - hubs[a].anchorX,
+        hubs[b].anchorY - hubs[a].anchorY,
+      );
+      const need = clusterReach(hubs[a].degree) + clusterReach(hubs[b].degree);
+      assert.ok(
+        apart >= need,
+        `hubs ${a} and ${b} are anchored ${apart.toFixed(0)}px apart but reach ${need.toFixed(0)}px between them`,
+      );
+    }
+  }
+});
+
+test("no two dots overlap inside a cluster", () => {
+  /*
+    A guard on `forceCollide`, which is what actually keeps dots apart — dropping it
+    or letting the membership link overpower it would make a large cluster a solid
+    blob, and no other test here would notice. Measured on the largest single cluster
+    a real library produces, at the tightest zoom the map is ever drawn at.
+  */
+  const graph = buildGraph(bucketed(124, 3), byWatchYear);
+  const layout = createLayout(graph, WIDTH, HEIGHT);
+  settle(layout.simulation);
+
+  const owns = membershipsOf(graph.edges);
+  const films = layout.nodes.filter((node) => node.kind === "film");
+
+  let worst = { gap: Infinity, pair: "" };
+  for (let i = 0; i < films.length; i += 1) {
+    for (let j = i + 1; j < films.length; j += 1) {
+      // Only within a cluster: two films from different years may legitimately
+      // pass close where the clusters meet.
+      const shared = [...(owns.get(films[i].id) ?? [])].some((hub) =>
+        owns.get(films[j].id)?.has(hub),
+      );
+      if (!shared) continue;
+
+      const gap =
+        Math.hypot(films[i].x - films[j].x, films[i].y - films[j].y) -
+        films[i].radius -
+        films[j].radius;
+      if (gap < worst.gap) worst = { gap, pair: `${films[i].id} and ${films[j].id}` };
+    }
+  }
+
+  assert.ok(
+    worst.gap > 0,
+    `${worst.pair} overlap by ${(-worst.gap).toFixed(1)}px in the same cluster`,
+  );
 });
 
 /* --- The diary thread ---------------------------------------------------- */

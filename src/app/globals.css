@@ -109,10 +109,17 @@ body {
 /*
   Graph surface.
 
-  All visual state is expressed as `data-` attributes that React sets on the
-  node and edge groups, and read here so the cascade does the work: one
-  attribute change restyles a dot, its label and its edges together. D3 writes
-  transforms and nothing else.
+  All visual state is expressed as `data-` attributes read here so the cascade
+  does the work: one attribute change restyles a dot, its label and its edges
+  together.
+
+  Which code writes them is split by what they derive from, not by who owns the
+  element. React writes the attributes that come from the `Graph` — selection,
+  rating, lit — during render. Everything derived from *coordinates* is written
+  straight to the DOM by the effects in `GraphView`, outside React: `transform`
+  and the line endpoints on every tick, and `data-named` whenever the label
+  choice is recomputed. None of those appear in JSX, so React never fights for
+  them and a 60fps simulation costs no reconciliation.
 */
 .eiga-graph {
   display: block;
@@ -120,6 +127,22 @@ body {
   height: 100%;
   /* Let d3-zoom handle gestures instead of the browser scrolling the page. */
   touch-action: none;
+
+  /*
+    The live zoom scale, written by the zoom handler.
+
+    Every piece of text and every hairline on the map divides by it, so they hold
+    their size on screen while the map scales underneath. That is what makes
+    zooming in reveal more names: the type stays 10px while the disc grows, so a
+    title's footprint *in map coordinates* shrinks and more of them fit. Type
+    that scaled with the map would be equally crowded at every zoom and there
+    would be nothing for `viz/labels.ts` to compute.
+
+    Updated in the same throttled step as the label choice, so the boxes that
+    decision was made with and the text actually drawn never disagree by more
+    than the few percent of a zoom step.
+  */
+  --zoom: 1;
 }
 
 .eiga-graph text {
@@ -131,7 +154,9 @@ body {
 .eiga-graph .eiga-label {
   paint-order: stroke;
   stroke: var(--color-void);
-  stroke-width: 3px;
+  /* Counter-scaled with the type it outlines: at 6× a fixed 3px halo would be
+     18px of void in map coordinates and would swallow the neighbouring dots. */
+  stroke-width: calc(3px / var(--zoom));
   stroke-linejoin: round;
   text-anchor: middle;
 }
@@ -197,18 +222,18 @@ body {
 */
 .eiga-year line {
   stroke: var(--color-rule);
-  stroke-width: 1;
+  stroke-width: calc(1px / var(--zoom));
 }
 
 .eiga-year text {
   fill: var(--color-paper-dim);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: calc(8px / var(--zoom));
   letter-spacing: 0.08em;
   /* A halo, as on a node label: the tick sits among the films it measures. */
   paint-order: stroke;
   stroke: var(--color-void);
-  stroke-width: 3px;
+  stroke-width: calc(3px / var(--zoom));
   stroke-linejoin: round;
 }
 
@@ -230,7 +255,7 @@ body {
 }
 
 .eiga-film .eiga-label {
-  font-size: 10px;
+  font-size: calc(10px / var(--zoom));
   fill: var(--color-paper-mid);
   opacity: 0;
   transition: opacity 200ms ease;
@@ -244,14 +269,26 @@ body {
 }
 
 .eiga-hub .eiga-label {
-  font-size: 9px;
+  font-size: calc(9px / var(--zoom));
   letter-spacing: 0.22em;
   text-transform: uppercase;
   fill: var(--color-paper-dim);
 }
 
-/* Zoom-aware disclosure: titles arrive only once you have leaned in. */
-.eiga-graph[data-detail="near"] .eiga-film .eiga-label {
+/*
+  Selective disclosure: a title appears only if it was *chosen*, which
+  `viz/labels.ts` decides by laying boxes down in priority order and rejecting
+  any that would collide. `data-named` is written by `GraphView` after a settle,
+  after a re-sort and on zoom.
+
+  This replaces a single `data-detail="near"` threshold that showed every title
+  at once above 1.6×. That was not a hierarchy, it was a switch: at 124 films it
+  printed a hundred names over each other, which is the reported bug — "the
+  names of the movie are so close they are unreadable and clogged". Same
+  specificity as the rule it replaces, and in the same place in the cascade, so
+  the focus, hover and anchor rules below still override it.
+*/
+.eiga-graph .eiga-film[data-named="true"] .eiga-label {
   opacity: 0.8;
 }
 
@@ -299,23 +336,32 @@ body {
 }
 
 /*
-  Search. The same idea as focus: films that do not match recede, and the hubs
-  and spine stay lit so the map keeps its shape while you read the answer. A
-  search that emptied the screen would make you lose your place in it.
+  Narrowing: the search box and the highlight chips, which resolve to one answer.
 
-  Matches are named outright regardless of zoom, since a dot you cannot read is
-  not an answer to "where is it".
+  The same idea as focus. Films that are not lit recede, and the hubs, spine and
+  chain stay at full strength so the map keeps its shape while you read the
+  answer — narrowing that emptied the screen would make you lose your place in it.
+
+  A lit film is *prioritised* for a name, not exempted from the collision test:
+  it sorts to the front of the queue in `viz/labels.ts` and so gets first refusal
+  on the space, but a query matching forty titles must not be able to re-clog the
+  map with the very bug the thinning exists to fix. Hence `data-named` here as
+  well as `data-lit`. A lit film that lost the space is still framed in citron and
+  still readable on hover or in the inspector.
+
+  `data-lit` is keyed on the film id rather than the node id; see `litState` in
+  GraphView for why that distinction has a scar.
 */
-.eiga-graph[data-searching="true"] .eiga-film[data-match="false"] {
+.eiga-graph[data-narrowed="true"] .eiga-film[data-lit="false"] {
   opacity: 0.08;
 }
 
-.eiga-graph[data-searching="true"] .eiga-film[data-match="true"] circle {
+.eiga-graph[data-narrowed="true"] .eiga-film[data-lit="true"] circle {
   stroke: var(--color-signal);
   stroke-width: 1.25;
 }
 
-.eiga-graph[data-searching="true"] .eiga-film[data-match="true"] .eiga-label {
+.eiga-graph[data-narrowed="true"] .eiga-film[data-lit="true"][data-named="true"] .eiga-label {
   opacity: 1;
   fill: var(--color-paper);
 }
