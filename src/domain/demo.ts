@@ -135,5 +135,6 @@ export function demoLibrary(): Library {
     watches: watches.sort((a, b) => a.filmId.localeCompare(b.filmId)),
     ratings,
     reviews,
+    likes: new Set(),
   };
 }

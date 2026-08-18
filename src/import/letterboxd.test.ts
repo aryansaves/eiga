@@ -35,6 +35,12 @@ const STALKER = "title:stalker:1979";
 const DUNE = "title:dune-part-two:2024";
 const PAPRIKA = "title:paprika:2006";
 
+/** Header verified against a real export. Solaris is liked but never watched. */
+const LIKES = `Date,Name,Year,Letterboxd URI
+2024-06-01,Stalker,1979,https://boxd.it/2bTa
+2024-06-02,Solaris,1972,https://boxd.it/2aaa
+`;
+
 test("classifies export files by name, never by header shape", () => {
   // These three share the identical header `Date,Name,Year,Letterboxd URI`.
   assert.equal(classifyFile("watched.csv"), "watched");
@@ -45,6 +51,107 @@ test("classifies export files by name, never by header shape", () => {
   assert.equal(classifyFile("profile.csv"), "profile");
   assert.equal(classifyFile("Ratings.CSV"), "ratings");
   assert.equal(classifyFile("something-else.csv"), "unknown");
+});
+
+test("nesting demotes a watch-history name, but likes belong nested", () => {
+  /*
+    Reachable only now that archives are read, and load-bearing: a real export
+    ships the *full diary schema* — `Watched Date` and all — under `deleted/` and
+    `orphaned/`. Classifying on the basename alone would import entries the user
+    deleted, and entries whose film Letterboxd lost, as viewings that happened.
+  */
+  assert.equal(classifyFile("deleted/diary.csv"), "unknown");
+  assert.equal(classifyFile("orphaned/diary.csv"), "unknown");
+  assert.equal(classifyFile("deleted/reviews.csv"), "unknown");
+  assert.equal(classifyFile("deleted/lists/peak-run.csv"), "unknown");
+
+  /*
+    `likes/reviews.csv` is *other people's* reviews you liked. Its columns are
+    `Date,Content` — it has no `Name` at all — so read as your own reviews it
+    produces a spurious "not a recognised Letterboxd export" error on every
+    archive import.
+  */
+  assert.equal(classifyFile("likes/reviews.csv"), "unknown");
+
+  // Likes are not watch history, so nesting is exactly where they belong.
+  assert.equal(classifyFile("likes/films.csv"), "likes");
+  // The top level is untouched.
+  assert.equal(classifyFile("diary.csv"), "diary");
+  assert.equal(classifyFile("reviews.csv"), "reviews");
+});
+
+test("deleted and orphaned diary entries contribute no viewings", () => {
+  const removed = `Date,Name,Year,Letterboxd URI,Rating,Rewatch,Tags,Watched Date
+2023-01-01,Removed Film,1999,https://boxd.it/eNtRy9,4,,,2023-01-01
+`;
+  const result = importNamedCsvs([
+    { name: "diary.csv", text: DIARY },
+    { name: "deleted/diary.csv", text: removed },
+    { name: "orphaned/diary.csv", text: removed },
+  ]);
+
+  assert.ok(!result.library.films.some((film) => film.title === "Removed Film"));
+  assert.equal(result.library.watches.length, 3);
+  assert.deepEqual(
+    [...result.skipped].sort(),
+    ["deleted/diary.csv", "orphaned/diary.csv"],
+  );
+});
+
+test("a like annotates a film and never conjures one", () => {
+  const result = importNamedCsvs([
+    { name: "watched.csv", text: WATCHED },
+    { name: "likes/films.csv", text: LIKES },
+  ]);
+
+  // Solaris is liked but appears in no watch history, so it is not a film here.
+  assert.equal(result.library.films.length, 3);
+  assert.deepEqual([...result.library.likes], [STALKER]);
+
+  /*
+    `likes/films.csv` has a `Date` column, but it records when the heart was
+    clicked. Read as a viewing it would invent watch dates that never happened —
+    and on the diary thread those dates decide where a film sits.
+  */
+  assert.equal(result.library.watches.length, 0);
+  assert.equal(result.library.ratings.size, 0);
+
+  const dropped = result.diagnostics.find((note) =>
+    note.message.includes("not in your watch history"),
+  );
+  assert.equal(dropped?.severity, "warning");
+  assert.ok(
+    !JSON.stringify(result.diagnostics).includes("Solaris"),
+    "the diagnostic named the film it dropped",
+  );
+});
+
+test("likes do not depend on the order files were selected", () => {
+  /*
+    `likes/films.csv` sorts before `watched.csv`, so at the moment a like is read
+    the film it names does not exist yet. Resolving in `finalize` is what makes
+    "a like never conjures a film" true by construction rather than by luck.
+  */
+  const files: NamedCsv[] = [
+    { name: "likes/films.csv", text: LIKES },
+    { name: "watched.csv", text: WATCHED },
+  ];
+
+  const forward = importNamedCsvs(files);
+  const reverse = importNamedCsvs([...files].reverse());
+
+  assert.deepEqual([...forward.library.likes], [STALKER]);
+  assert.deepEqual([...forward.library.likes], [...reverse.library.likes]);
+});
+
+test("likes alone are not a library", () => {
+  // Readable, but they establish nothing. Without this the import reports
+  // success and draws an empty map.
+  const result = importNamedCsvs([{ name: "likes/films.csv", text: LIKES }]);
+
+  assert.equal(result.library.films.length, 0);
+  assert.equal(result.library.likes.size, 0);
+  assert.ok(result.diagnostics.some((note) => note.severity === "error"));
 });
 
 test("watchlist is never imported as watch history", () => {

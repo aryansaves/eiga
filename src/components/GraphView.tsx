@@ -33,6 +33,7 @@ import { zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior } from "d3-zoom
 
 import { RATING_MAX } from "@/domain/types.ts";
 import {
+  groupCount,
   neighboursOf,
   type Graph,
   type GraphEdge,
@@ -52,6 +53,9 @@ import {
 
 /** Scale at which titles are worth showing. Below it, only shape and hubs read. */
 const DETAIL_ZOOM = 1.6;
+
+/** Half-length of a year tick, in layout px. Short: it points, it does not divide. */
+const MARK_TICK = 7;
 
 /**
  * Relaying out on every resized pixel would thrash, so the layout's coordinate
@@ -96,12 +100,35 @@ function filmDescription(node: GraphNode): string {
   return `${node.label}, ${year}, ${rating}`;
 }
 
+/**
+ * What the map is, for a screen reader.
+ *
+ * Branches on topology because the two say genuinely different things: a hub map
+ * groups films, and the thread orders them. `groupCount` supplies the number in
+ * both cases, so this can never disagree with the status line beneath the map.
+ */
+function mapDescription(graph: Graph, films: number): string {
+  const groups = groupCount(graph);
+  return graph.shape === "thread"
+    ? `Map of ${films} films in the order they were watched, across ${groups} days`
+    : `Map of ${films} films across ${groups} ${graph.groupKind} groups`;
+}
+
 export function GraphView({ graph, focusedId, onFocus, matches, surfaceRef }: GraphViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const viewportRef = useRef<SVGGElement>(null);
   const nodeEls = useRef(new Map<string, SVGGElement>());
   const edgeEls = useRef(new Map<string, SVGLineElement>());
+  /**
+   * Year marks, keyed by year, and their labels separately.
+   *
+   * Two maps because a mark is written twice: the group is turned to lie along the
+   * radius, and the label inside it is turned back so it stays upright. A rotated
+   * year would read as a decorative sunburst, which is the opposite of a graticule.
+   */
+  const markEls = useRef(new Map<number, SVGGElement>());
+  const markLabelEls = useRef(new Map<number, SVGGElement>());
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   /** Set once the user pans or zooms, after which the view is theirs to keep. */
   const exploredRef = useRef(false);
@@ -247,6 +274,23 @@ export function GraphView({ graph, focusedId, onFocus, matches, surfaceRef }: Gr
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     /*
+      Year marks are placed once and never again. They are the map's graticule:
+      fixed to the ideal curve while the films settle around it, which is the
+      relationship a printed map has between its grid and its terrain — and a
+      graticule that drifted with the terrain would be measuring nothing.
+    */
+    for (const mark of layout.marks) {
+      const degrees = ((mark.angle * 180) / Math.PI).toFixed(2);
+      markEls.current
+        .get(mark.year)
+        ?.setAttribute(
+          "transform",
+          `translate(${mark.x.toFixed(2)} ${mark.y.toFixed(2)}) rotate(${degrees})`,
+        );
+      markLabelEls.current.get(mark.year)?.setAttribute("transform", `rotate(-${degrees})`);
+    }
+
+    /*
       A map that is not re-sorting settles before it is shown. Watching a hundred
       films fly out from a common point is a loading screen pretending to be an
       insight, and it also means framing has a stable shape to measure.
@@ -335,6 +379,16 @@ export function GraphView({ graph, focusedId, onFocus, matches, surfaceRef }: Gr
     else edgeEls.current.delete(id);
   };
 
+  const registerMark = (year: number) => (el: SVGGElement | null) => {
+    if (el) markEls.current.set(year, el);
+    else markEls.current.delete(year);
+  };
+
+  const registerMarkLabel = (year: number) => (el: SVGGElement | null) => {
+    if (el) markLabelEls.current.set(year, el);
+    else markLabelEls.current.delete(year);
+  };
+
   const toggle = (id: string) => onFocus(id === focusedId ? null : id);
 
   return (
@@ -348,8 +402,9 @@ export function GraphView({ graph, focusedId, onFocus, matches, surfaceRef }: Gr
         viewBox={`0 0 ${size?.width ?? 0} ${size?.height ?? 0}`}
         data-focused={focusedId ? "true" : "false"}
         data-searching={matches ? "true" : "false"}
+        data-shape={graph.shape}
         role="group"
-        aria-label={`Map of ${films.length} films across ${hubs.length} ${graph.hubKind} groups`}
+        aria-label={mapDescription(graph, films.length)}
         // Clicking the surface itself — not a node — releases the anchor.
         onClick={(event) => {
           if (event.target === event.currentTarget) onFocus(null);
@@ -361,6 +416,28 @@ export function GraphView({ graph, focusedId, onFocus, matches, surfaceRef }: Gr
             otherwise mount every node before the layout exists, and a pile of
             dots at the origin is not a map.
           */}
+
+          {/*
+            The year marks, underneath everything — a graticule the map is drawn
+            over, never a thing in it. Deliberately not nodes: a year that could be
+            clicked, focused or counted would be a hub, and the thread has none.
+            Rendered from `graph.yearStarts`, positioned from `layout.marks`, which
+            is the same division of labour as every node here.
+          */}
+          <g aria-hidden="true">
+            {ready &&
+              graph.yearStarts.map((start) => (
+                <g key={start.year} ref={registerMark(start.year)} className="eiga-year">
+                  <line x1={-MARK_TICK} x2={MARK_TICK} />
+                  <g ref={registerMarkLabel(start.year)}>
+                    <text x={MARK_TICK + 6} dy="0.32em">
+                      {start.year}
+                    </text>
+                  </g>
+                </g>
+              ))}
+          </g>
+
           <g>
             {ready &&
               graph.edges.map((edge) => (

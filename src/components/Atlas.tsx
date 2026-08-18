@@ -24,7 +24,8 @@ import { demoLibrary } from "@/domain/demo.ts";
 import { searchFilms } from "@/domain/search.ts";
 import { observe } from "@/domain/stats.ts";
 import { axesFor, resolveAxis, type AxisId } from "@/graph/axes.ts";
-import { buildGraph } from "@/graph/build.ts";
+import { buildGraph, groupCount } from "@/graph/build.ts";
+import { buildThread, unthreaded } from "@/graph/thread.ts";
 import { download, exportMapPng } from "@/viz/exportImage.ts";
 import { importLetterboxdFiles, type ImportResult } from "@/import/letterboxd.ts";
 
@@ -35,7 +36,12 @@ export function Atlas() {
   const demo = useMemo(() => demoLibrary(), []);
   const [imported, setImported] = useState<ImportResult | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [axis, setAxis] = useState<AxisId>("decade");
+  /*
+    The diary thread, which `axesFor` puts first. Held as an id rather than
+    resolved here so that a library with no dates — an import of `watched.csv`
+    alone — falls through `resolveAxis` to Decade without this line knowing.
+  */
+  const [axis, setAxis] = useState<AxisId>("diary");
   const [query, setQuery] = useState("");
   const [dropping, setDropping] = useState(false);
   const [saving, setSaving] = useState<SaveState>("idle");
@@ -59,7 +65,16 @@ export function Atlas() {
   const options = useMemo(() => axesFor(library), [library]);
   const active = useMemo(() => resolveAxis(library, axis), [library, axis]);
 
-  const graph = useMemo(() => buildGraph(library, active.strategy), [library, active]);
+  /*
+    The one place the two topologies diverge. A thread and a hub map are the same
+    `Graph` to everything downstream — same node ids, so a film keeps its identity
+    across a switch and can be watched travelling from the spiral into its decade
+    cluster and back.
+  */
+  const graph = useMemo(
+    () => (active.kind === "thread" ? buildThread(library) : buildGraph(library, active.strategy)),
+    [library, active],
+  );
   /*
     The observation follows the axis: the same set of facts, but the one that
     speaks to what is on screen is preferred. Nothing new becomes sayable, so
@@ -98,8 +113,19 @@ export function Atlas() {
     setFocusedId(null);
   }, []);
 
-  const hubs = graph.nodes.filter((node) => node.kind === "hub").length;
-  const films = graph.nodes.length - hubs;
+  const films = graph.nodes.filter((node) => node.kind === "film").length;
+  /*
+    Hubs on a hub map, distinct watch days on the thread — `groupCount` knows
+    which, so the status line does not have to branch and cannot disagree with
+    the map about what it is showing.
+  */
+  const groups = groupCount(graph);
+  /*
+    Films the thread could not place. Named rather than left to be noticed: the
+    scattered band outside the last turn is otherwise indistinguishable from a
+    rendering fault, and silently dropping them would understate the library.
+  */
+  const undated = graph.shape === "thread" ? unthreaded(graph).length : 0;
 
   /*
     The caption is composed here rather than inside the exporter, because what
@@ -128,8 +154,9 @@ export function Atlas() {
 
   const status = [
     `${films} films`,
-    // Every axis names its own hubs, and every one of those names takes a plain s.
-    `${hubs} ${hubs === 1 ? graph.hubKind : `${graph.hubKind}s`}`,
+    // Every grouping names its own unit — hub, day — and each takes a plain s.
+    `${groups} ${groups === 1 ? graph.groupKind : `${graph.groupKind}s`}`,
+    ...(undated > 0 ? [`${undated} undated`] : []),
     usable ? "your library" : "demo library",
   ].join(" · ");
 

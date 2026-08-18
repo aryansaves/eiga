@@ -13,9 +13,9 @@
  *  2. `profile.csv` is never read. It carries email, legal name, location and
  *     bio, none of which EIGA has any use for.
  *
- * V1 takes CSVs rather than the export `.zip` — reading a zip would mean adding
- * an archive dependency to save the user one unzip step, which is not a trade
- * worth making yet.
+ * V1 reads either the export `.zip` or loose CSVs. The archive is expanded by
+ * `src/import/zip.ts` and its entries are fed through the same deterministic core,
+ * so nothing below knows which of the two it was handed.
  */
 
 import Papa from "papaparse";
@@ -27,6 +27,7 @@ import {
   type Library,
   type WatchEvent,
 } from "../domain/types.ts";
+import { readZip } from "./zip.ts";
 
 export type LetterboxdFileKind =
   | "watched"
@@ -55,9 +56,24 @@ const YEAR_MAX = 2100;
  * byte-identical headers (`Date,Name,Year,Letterboxd URI`). Guessing from the
  * header would silently import 85 films you have never seen as films you have.
  * An unrecognised name is skipped and reported rather than guessed at.
+ *
+ * Nesting is part of the name. An export contains `deleted/diary.csv`,
+ * `orphaned/diary.csv` and `likes/reviews.csv` — respectively entries you
+ * removed, entries whose film Letterboxd lost, and *other people's* reviews that
+ * you liked. All three share a basename with real watch history, so a watch-history
+ * kind is only ever returned for a file at the top level. `likes/films.csv` is
+ * unaffected because likes are not watch history and are expected to be nested.
  */
 export function classifyFile(fileName: string): LetterboxdFileKind {
-  const base = fileName.split("/").pop()?.trim().toLowerCase() ?? "";
+  const path = fileName.trim().toLowerCase();
+  const base = path.split("/").pop() ?? "";
+  const nested = path.includes("/");
+
+  const kind = kindOfBasename(base);
+  return nested && WATCH_HISTORY.has(kind) ? "unknown" : kind;
+}
+
+function kindOfBasename(base: string): LetterboxdFileKind {
   switch (base) {
     case "watched.csv":
       return "watched";
@@ -84,6 +100,18 @@ const WATCH_HISTORY: ReadonlySet<LetterboxdFileKind> = new Set([
   "ratings",
   "diary",
   "reviews",
+]);
+
+/**
+ * Everything EIGA opens at all.
+ *
+ * Likes are read but are not watch history: they annotate films the rest of the
+ * export establishes. `watchlist` and `profile` are absent deliberately — the
+ * first is films never seen, the second is account identity.
+ */
+const READABLE: ReadonlySet<LetterboxdFileKind> = new Set([
+  ...WATCH_HISTORY,
+  "likes",
 ]);
 
 /**
@@ -205,6 +233,16 @@ interface Accumulator {
   readonly watches: Map<string, WatchEvent>;
   readonly ratings: Map<FilmId, number>;
   readonly reviews: Map<FilmId, string>;
+  /**
+   * Candidate liked films, intersected with `films` in {@link finalize}.
+   *
+   * Held as candidates rather than resolved on the spot because files are read in
+   * name order, which puts `likes/films.csv` before `watched.csv` — at the moment
+   * a like is read, the film it names usually does not exist yet. Deferring makes
+   * the rule "a like never conjures a film" true by construction rather than by
+   * depending on the order the user selected files in.
+   */
+  readonly liked: Set<FilmId>;
   readonly diagnostics: ImportDiagnostic[];
 }
 
@@ -214,6 +252,7 @@ function createAccumulator(): Accumulator {
     watches: new Map(),
     ratings: new Map(),
     reviews: new Map(),
+    liked: new Set(),
     diagnostics: [],
   };
 }
@@ -307,6 +346,17 @@ export function ingestCsv(
     const id = filmIdFrom(title, year);
 
     /*
+      A like is an annotation, not evidence of a viewing. It records the id and
+      stops: no film, no rating, no watch event. `likes/films.csv` has a `Date`
+      column, but that is when the heart was clicked — reading it as a viewing
+      would invent 27 watch dates that never happened.
+    */
+    if (kind === "likes") {
+      into.liked.add(id);
+      return;
+    }
+
+    /*
       Only the film-linking files contribute a URI. In `diary.csv` and
       `reviews.csv` this column addresses the entry, not the film, and storing
       that as the film's link would poison the field for later enrichment —
@@ -355,6 +405,29 @@ export function ingestCsv(
 }
 
 function finalize(acc: Accumulator): Library {
+  /*
+    Likes are intersected with the films the watch history established. A like
+    naming a film nothing else mentions is dropped rather than promoted into a
+    film EIGA would then draw as watched. On a real export none of the 27 were
+    dropped, which is a fact worth checking rather than relying on.
+  */
+  const likes = new Set<FilmId>();
+  let unmatched = 0;
+  for (const id of acc.liked) {
+    if (acc.films.has(id)) likes.add(id);
+    else unmatched += 1;
+  }
+
+  if (unmatched > 0) {
+    acc.diagnostics.push({
+      file: "likes/films.csv",
+      row: null,
+      field: null,
+      severity: "warning",
+      message: `${unmatched} liked ${unmatched === 1 ? "film is" : "films are"} not in your watch history; ${unmatched === 1 ? "it was" : "they were"} not added to the map`,
+    });
+  }
+
   return {
     // Sorted so the library — and therefore the graph — is deterministic.
     films: [...acc.films.values()].sort((a, b) => a.id.localeCompare(b.id)),
@@ -363,6 +436,7 @@ function finalize(acc: Accumulator): Library {
       .map(([, watch]) => watch),
     ratings: acc.ratings,
     reviews: acc.reviews,
+    likes,
   };
 }
 
@@ -382,6 +456,7 @@ export function importNamedCsvs(files: readonly NamedCsv[]): ImportResult {
   const acc = createAccumulator();
   const accepted: string[] = [];
   const skipped: string[] = [];
+  let sawWatchHistory = false;
 
   const ordered = [...files].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -401,7 +476,7 @@ export function importNamedCsvs(files: readonly NamedCsv[]): ImportResult {
       continue;
     }
 
-    if (!WATCH_HISTORY.has(kind)) {
+    if (!READABLE.has(kind)) {
       skipped.push(file.name);
       acc.diagnostics.push({
         file: file.name,
@@ -416,18 +491,24 @@ export function importNamedCsvs(files: readonly NamedCsv[]): ImportResult {
       continue;
     }
 
+    if (WATCH_HISTORY.has(kind)) sawWatchHistory = true;
     accepted.push(file.name);
     ingestCsv(kind, file.name, file.text, acc);
   }
 
-  if (accepted.length === 0) {
+  /*
+    Keyed on watch history rather than on `accepted`, because likes alone are
+    readable but establish nothing: an import of `likes/films.csv` by itself
+    would otherwise report success and draw an empty map.
+  */
+  if (!sawWatchHistory) {
     acc.diagnostics.push({
       file: "",
       row: null,
       field: null,
       severity: "error",
       message:
-        "no watch history found. Select watched.csv, ratings.csv, diary.csv or reviews.csv from your export",
+        "no watch history found. Select your export .zip, or watched.csv, ratings.csv, diary.csv or reviews.csv from it",
     });
   }
 
@@ -440,21 +521,100 @@ export function importNamedCsvs(files: readonly NamedCsv[]): ImportResult {
 }
 
 /**
+ * Whether a blob begins with a zip signature.
+ *
+ * Sniffed rather than trusting the extension: a `.zip` renamed by a mail client,
+ * or a CSV named `export.zip`, should both do the sensible thing. Both the local
+ * header and empty-archive signatures are accepted so an export containing
+ * nothing still reaches the archive path and gets the archive's error message.
+ */
+async function looksLikeArchive(file: Blob): Promise<boolean> {
+  if (file.size < 4) return false;
+  const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  if (head[0] !== 0x50 || head[1] !== 0x4b) return false;
+  return (
+    (head[2] === 0x03 && head[3] === 0x04) ||
+    (head[2] === 0x05 && head[3] === 0x06)
+  );
+}
+
+/**
  * Browser entry point. The only impure function in this module: it reads the
  * files, then hands plain text to the deterministic core above.
+ *
+ * An export `.zip` is expanded here and its entries join any loose CSVs in the
+ * same list — `importNamedCsvs` already sorts and dedupes by name, so mixing the
+ * two needs no special case. An archive that cannot be read becomes one error
+ * and does not stop the other files from importing.
  *
  * File contents never leave the browser.
  */
 export async function importLetterboxdFiles(
   files: readonly File[],
 ): Promise<ImportResult> {
-  const named = await Promise.all(
-    files.map(async (file) => ({
-      name: file.name,
-      text: await file.text(),
-    })),
-  );
-  return importNamedCsvs(named);
+  const named: NamedCsv[] = [];
+  const notes: ImportDiagnostic[] = [];
+
+  for (const file of files) {
+    if (!(await looksLikeArchive(file))) {
+      named.push({ name: file.name, text: await file.text() });
+      continue;
+    }
+
+    /*
+      `include` decides what is decompressed at all, so files EIGA has promised
+      not to read are never expanded — not read and discarded, never opened. It
+      also records what it saw, which is how the archive can still report the
+      deliberate `profile.csv` skip without that file being touched.
+    */
+    const seen = new Set<LetterboxdFileKind>();
+    const include = (path: string): boolean => {
+      const kind = classifyFile(path);
+      seen.add(kind);
+      return READABLE.has(kind);
+    };
+
+    try {
+      const archive = await readZip(file, include);
+      for (const entry of archive.entries) {
+        named.push({ name: entry.path, text: entry.text });
+      }
+
+      const total = archive.entries.length + archive.ignored;
+      notes.push({
+        file: file.name,
+        row: null,
+        field: null,
+        severity: "warning",
+        message: `expanded archive: read ${archive.entries.length} of ${total} files; the rest were not opened`,
+      });
+
+      if (seen.has("profile")) {
+        notes.push({
+          file: file.name,
+          row: null,
+          field: null,
+          severity: "warning",
+          message:
+            "the export's account identity file was never opened: EIGA does not read it",
+        });
+      }
+    } catch (error) {
+      notes.push({
+        file: file.name,
+        row: null,
+        field: null,
+        severity: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "this archive could not be read",
+      });
+    }
+  }
+
+  const result = importNamedCsvs(named);
+  return { ...result, diagnostics: [...notes, ...result.diagnostics] };
 }
 
 export type { Accumulator };

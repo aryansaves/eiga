@@ -170,6 +170,48 @@ body {
   opacity: 0.5;
 }
 
+/*
+  The chain: the diary thread itself, film to film in watch order.
+
+  Drawn at full strength like the spine, because on the thread it is not one
+  relationship among several — it is the entire structure, and every other edge
+  kind is absent. Slightly finer than the spine: there are a hundred of these
+  where a spine has a dozen, and at that count the same weight would read as a
+  drawn coil rather than as a line through the films.
+*/
+.eiga-edge[data-kind="chain"] {
+  stroke: var(--color-rule);
+  stroke-width: 1.1;
+}
+
+/*
+  Year marks: the thread's graticule.
+
+  A tick lying along the radius and an upright year beside it — the two marks a
+  printed chart uses to say where a scale begins, and nothing more. Faint on
+  purpose: this is the one element on the map that is not the user's data, so it
+  must be findable when looked for and invisible when not.
+
+  Named `eiga-year`, not `eiga-mark`: that class is the wordmark's letterspacing
+  treatment, and sharing it would mean retuning the wordmark moved the graticule.
+*/
+.eiga-year line {
+  stroke: var(--color-rule);
+  stroke-width: 1;
+}
+
+.eiga-year text {
+  fill: var(--color-paper-dim);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  /* A halo, as on a node label: the tick sits among the films it measures. */
+  paint-order: stroke;
+  stroke: var(--color-void);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .eiga-film circle {
   fill: var(--color-paper-mid);
   transition:

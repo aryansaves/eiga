@@ -60,6 +60,15 @@ export interface Library {
    * never logged, never sent anywhere, always rendered as escaped text.
    */
   readonly reviews: ReadonlyMap<FilmId, string>;
+  /**
+   * Films the user liked, as a heart rather than a rating.
+   *
+   * Only ever a subset of `films`: a like annotates a film the library already
+   * knows about and never conjures one. In a real export all 27 liked films were
+   * already in the watch history, but that is enforced at import rather than
+   * assumed, because `likes/films.csv` is read before `watched.csv` in name order.
+   */
+  readonly likes: ReadonlySet<FilmId>;
 }
 
 /**
@@ -71,7 +80,18 @@ export interface Library {
  * for one) can speak about them without knowing that a graph exists. How an axis
  * is turned into hubs, and what it is called on screen, belongs to `graph/axes`.
  */
-export type AxisId = "decade" | "rating" | "watchYear" | "director";
+export type HubAxisId = "decade" | "rating" | "watchYear" | "director";
+
+/**
+ * Every view the map can be drawn in, grouped or not.
+ *
+ * `diary` is the odd one and is named here anyway: it is not a grouping at all
+ * but the watch history as a single thread, and it is what the user sees first.
+ * Keeping it in the same type is what lets one control offer both topologies —
+ * see the `Axis` union in `graph/axes`, which is where the difference between
+ * them actually matters.
+ */
+export type AxisId = "diary" | HubAxisId;
 
 export type DiagnosticSeverity = "warning" | "error";
 
@@ -101,7 +121,13 @@ export interface FilmDetail {
 }
 
 export function emptyLibrary(): Library {
-  return { films: [], watches: [], ratings: new Map(), reviews: new Map() };
+  return {
+    films: [],
+    watches: [],
+    ratings: new Map(),
+    reviews: new Map(),
+    likes: new Set(),
+  };
 }
 
 /** The decade a film belongs to, e.g. 1994 -> 1990. Null when the year is unknown. */

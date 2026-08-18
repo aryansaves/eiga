@@ -1,15 +1,19 @@
 /**
- * Graph construction.
+ * Hub graph construction — the attribute maps the user re-sorts into.
  *
  * The central decision here is topological. Connecting films directly to other
  * films that share an attribute produces cliques: a library with 51 films from
  * the 2010s would emit 1,275 edges for that decade alone, which renders as an
  * unreadable ball regardless of how it is drawn.
  *
- * So films are never joined to each other by attribute. Each film is joined to
+ * So films are never joined to each other *by attribute*. Each film is joined to
  * a small *hub* node representing the attribute, giving one edge per film and a
  * layout that settles into legible clusters. Films stay the primary visual
  * objects; hubs are few and quiet.
+ *
+ * The constraint is quadratic growth, not film-to-film links as such — see
+ * `src/graph/thread.ts`, where the diary chain joins films directly at a cost of
+ * n−1 edges, the sparsest connected graph that exists.
  *
  * A film may only ever hold hubs from *one* axis at a time. Axes are mutually
  * exclusive, not layered. Grouping by decade *and* rating simultaneously would
@@ -50,17 +54,28 @@ export interface GraphNode {
   /** Members for a hub; connection count for a film. */
   readonly degree: number;
   /**
-   * Position along an ordinal axis, for hubs that have one.
+   * Position along an ordered scale, when the node sits on one.
    *
-   * Carried on the node so the layout can order hubs by the axis's own scale
-   * instead of inferring it from the id — `hub:rating:5` sorts *after*
-   * `hub:rating:45` as a string, which would put half a star between four and a
-   * half and five.
+   * On a hub map this is the hub's place on its axis, carried here so the layout
+   * can order hubs by the axis's own scale instead of inferring it from the id —
+   * `hub:rating:5` sorts *after* `hub:rating:45` as a string, which would put
+   * half a star between four and a half and five.
+   *
+   * On the diary thread it is the *step index* of a film: which distinct watch
+   * day it belongs to, counting from the first. Films seen on the same day share
+   * a step, which is what makes a binge one knot rather than several. Null means
+   * the node sits on no scale — the unplaced hub, or a film with no watch date.
    */
   readonly order: number | null;
 }
 
-export type GraphEdgeKind = "membership" | "session" | "spine";
+/**
+ * How nodes are joined.
+ *
+ * `membership`, `session` and `spine` belong to a hub map; `chain` to the diary
+ * thread. No graph mixes the two families — see {@link Graph.shape}.
+ */
+export type GraphEdgeKind = "membership" | "session" | "spine" | "chain";
 
 export interface GraphEdge {
   readonly id: string;
@@ -69,11 +84,41 @@ export interface GraphEdge {
   readonly kind: GraphEdgeKind;
 }
 
+/**
+ * The first thread step falling in a calendar year — where a year mark goes.
+ *
+ * The thread's only concession to the renderer, and it earns it: a year mark has
+ * to be drawn on the spiral curve, so the calendar and the geometry have to meet
+ * somewhere, and the geometry lives in the layout. Given as `step` rather than a
+ * position so that meeting still happens on the layout's side.
+ *
+ * Not derivable from the nodes, which carry a release year and a step but never
+ * the date behind the step. And not a property of any one film: a mark belongs to
+ * the moment, however many films share it.
+ */
+export interface YearStart {
+  readonly year: number;
+  readonly step: number;
+}
+
 export interface Graph {
   readonly nodes: readonly GraphNode[];
   readonly edges: readonly GraphEdge[];
-  /** What the hubs in this graph represent, e.g. "decade" or "director". */
-  readonly hubKind: string;
+  /**
+   * Which topology this is.
+   *
+   * Carried explicitly rather than inferred from whether hubs happen to exist,
+   * because the layout, the status line and the accessible label all have to
+   * branch on it, and "no hub nodes" would also describe an empty library.
+   */
+  readonly shape: "hubs" | "thread";
+  /**
+   * What one grouping stands for: a hub on a hub map ("decade", "director"), or
+   * one step of the thread ("day").
+   */
+  readonly groupKind: string;
+  /** Where each calendar year begins along the thread. Empty on a hub map. */
+  readonly yearStarts: readonly YearStart[];
 }
 
 export interface Hub {
@@ -336,8 +381,29 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
     // Sorted for determinism: identical input must yield an identical graph.
     nodes: [...filmNodes, ...hubNodes].sort((a, b) => a.id.localeCompare(b.id)),
     edges: [...edges.values()].sort((a, b) => a.id.localeCompare(b.id)),
-    hubKind: strategy.kind,
+    shape: "hubs",
+    groupKind: strategy.kind,
+    // A hub map has no chronology, so nothing to mark years along.
+    yearStarts: [],
   };
+}
+
+/**
+ * How many groups the map is drawn in: hubs on a hub map, distinct steps on a
+ * thread.
+ *
+ * One function rather than the arithmetic inlined at each call site, because the
+ * status line and the accessible label must never disagree about it.
+ */
+export function groupCount(graph: Graph): number {
+  if (graph.shape === "hubs") {
+    return graph.nodes.filter((node) => node.kind === "hub").length;
+  }
+  const steps = new Set<number>();
+  for (const node of graph.nodes) {
+    if (node.order !== null) steps.add(node.order);
+  }
+  return steps.size;
 }
 
 /**

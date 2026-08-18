@@ -4,9 +4,13 @@
  * Import affordances.
  *
  * The control is a label wrapping a real file input: no drag-and-drop-only
- * dead ends, no fake button, and the native picker does the work. The report
- * next to it exists because a silent import is untrustworthy — if EIGA ignored
- * part of your export, it says so, and says which part.
+ * dead ends, no fake button, and the native picker does the work. The whole
+ * export `.zip` is accepted alongside loose CSVs — `importLetterboxdFiles`
+ * sniffs the bytes rather than trusting the extension, so the two mix freely and
+ * a user who already unzipped is not punished for it.
+ *
+ * The report next to it exists because a silent import is untrustworthy — if
+ * EIGA ignored part of your export, it says so, and says which part.
  *
  * Diagnostics are structured and content-free by construction (see
  * src/import/letterboxd.ts), so displaying every one of them cannot leak a
@@ -29,12 +33,12 @@ export function ImportControl({
         Map mine
       </span>
       <span className="eiga-annotation mt-1.5 block">
-        watched · ratings · diary · reviews
+        your export .zip · or the CSVs inside it
       </span>
       <input
         type="file"
         multiple
-        accept=".csv,text/csv"
+        accept=".zip,application/zip,.csv,text/csv"
         className="sr-only"
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);

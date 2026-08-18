@@ -5,19 +5,31 @@
  * d3-force its own mutable copies of the nodes, and exposes the simulation. No
  * React, no DOM.
  *
- * The one authored decision here is the hub spine. Left to itself d3-force
- * produces a symmetric blob with no reading order, so hubs are pinned along a
- * staggered horizontal band in *axis* order and films are seeded beside their
- * hub. On an ordinal axis that turns the map into something that reads
- * left-to-right through the scale — decades through time, ratings low to high;
- * on a nominal axis the order is alphabetical, which is arbitrary but stable.
- * The stagger is what keeps neighbouring clusters from shouldering each other
- * sideways into one long horizontal smear. Films then drift where the forces
- * take them.
+ * There are two authored geometries here, one per topology, and in both cases the
+ * authoring is the point: left to itself d3-force produces a symmetric blob with
+ * no reading order, which is a picture of nothing.
  *
- * The graph's own spine edges are laid over that as a slack tether: the anchors
- * do the placing, because deterministic placement is worth more than an organic
- * chain, and the tether only stops the ends of a long scale from drifting apart.
+ * **The thread** — the default map — seeds films along an Archimedean spiral in
+ * watch order, oldest at the centre. A whole viewing life fits in one disc with no
+ * panning. See `spiralPoint` for the geometry and why it is not a sunflower.
+ *
+ * **A hub map** pins hubs along a staggered horizontal band in *axis* order and
+ * seeds films beside their hub. On an ordinal axis that reads left-to-right
+ * through the scale — decades through time, ratings low to high; on a nominal axis
+ * the order is alphabetical, which is arbitrary but stable. The stagger is what
+ * keeps neighbouring clusters from shouldering each other sideways into one long
+ * horizontal smear. The graph's own spine edges are laid over that as a slack
+ * tether: the anchors do the placing, because deterministic placement is worth
+ * more than an organic chain, and the tether only stops the ends of a long scale
+ * from drifting apart.
+ *
+ * Neither map is a plotted figure. A layout that placed every node exactly would
+ * be a diagram, so both are given a reason to be irregular — the hub map by
+ * anchoring films only faintly and letting their neighbours shoulder them around,
+ * the thread by nudging every anchor off the true curve by a fixed distance in a
+ * direction that never repeats. See `THREAD_WANDER`; the two mechanisms differ
+ * because on the thread the exact position carries a date, and a film pushed a
+ * step along the curve would be a film claiming the wrong day.
  *
  * Seeding is deterministic — no `Math.random` — so the same library always
  * settles into recognisably the same map, and a reload does not shuffle a place
@@ -61,6 +73,14 @@ export interface LayoutHandle {
   readonly nodes: readonly LayoutNode[];
   readonly edges: readonly LayoutEdge[];
   readonly simulation: Simulation<LayoutNode, LayoutEdge>;
+  /**
+   * Where the calendar years fall along the thread. Empty on a hub map.
+   *
+   * Fixed geometry, not simulated: the marks sit on the ideal curve while the
+   * films settle around it, which is exactly the relationship a printed map has
+   * between its graticule and its terrain.
+   */
+  readonly marks: readonly YearMark[];
   /**
    * Whether any node started from a previous position.
    *
@@ -139,17 +159,217 @@ function homeHubs(graph: Graph): ReadonlyMap<string, string> {
 /** Golden-angle offsets: deterministic, but organic rather than gridded. */
 const GOLDEN_ANGLE = 2.399963229728653;
 
+/* --- The diary spiral ---------------------------------------------------- */
+
+/**
+ * Radial distance between one turn of the spiral and the next.
+ *
+ * Wide enough that two turns read as two separate passes of the thread rather
+ * than one thick band, which is the property that lets the eye follow watch order
+ * around the disc.
+ */
+export const TURN_GAP = 46;
+
+/**
+ * Distance along the curve from one step to the next.
+ *
+ * A step is a distinct watch day, not a film. Comfortably more than twice the
+ * largest film radius, so consecutive days do not collide and the chain between
+ * them is visible as a line rather than as two touching dots.
+ */
+export const STEP = 26;
+
+/**
+ * Radius of the first step.
+ *
+ * Not zero: the centre is the most crowded part of any spiral, and starting at a
+ * point would pile the earliest films on top of each other. Raise this before
+ * anything else if the middle of the map reads as a blob.
+ */
+export const INNER_R = 30;
+
+/** Radial growth per radian, so that one full turn adds exactly `TURN_GAP`. */
+const SPIRAL_B = TURN_GAP / (2 * Math.PI);
+/** The angle the first step sits at, which is what puts it at `INNER_R`. */
+const SPIRAL_THETA0 = INNER_R / SPIRAL_B;
+
+export interface SpiralPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly r: number;
+  /** Radians from the positive x axis, for drawing a tick along the radius. */
+  readonly theta: number;
+}
+
+/**
+ * Where a step sits on the diary spiral, relative to the centre.
+ *
+ * An Archimedean spiral (`r = Bθ`), parameterised by *arc length* rather than by
+ * angle. Stepping the angle evenly would crowd the early films together and fling
+ * the recent ones apart, because the same angle covers more curve the further out
+ * you are. Solving for the angle instead — `s = B(θ² − θ0²)/2`, so
+ * `θ = √(θ0² + 2s/B)` — spaces every day the same distance from the day before it,
+ * which is the only version that reads as a scale.
+ *
+ * Deliberately *not* a phyllotaxis/sunflower spiral, the usual choice for filling
+ * a disc evenly. That one places consecutive points on opposite sides of the
+ * centre; with a chain drawn through them in order the result is a scribble, and
+ * watch order — the entire point — becomes unreadable.
+ */
+export function spiralPoint(step: number): SpiralPoint {
+  const arc = Math.max(0, step) * STEP;
+  const theta = Math.sqrt(SPIRAL_THETA0 * SPIRAL_THETA0 + (2 * arc) / SPIRAL_B);
+  const r = SPIRAL_B * theta;
+  return { x: r * Math.cos(theta), y: r * Math.sin(theta), r, theta };
+}
+
+/**
+ * A calendar year, marked where it begins along the thread.
+ *
+ * Returned from the layout and drawn by React as a background mark, *not* as a
+ * node — a year that could be clicked, focused or counted would be a hub, and the
+ * thread has none. Thin cartographic ticks over the map, nothing more.
+ */
+export interface YearMark {
+  readonly year: number;
+  readonly x: number;
+  readonly y: number;
+  /** Radians from the centre, so the tick can lie along the radius. */
+  readonly angle: number;
+}
+
+/** How far beyond the outermost turn the films with no date are scattered. */
+const UNDATED_GAP = 52;
+
+/**
+ * How far a film's place is nudged off the exact curve.
+ *
+ * The user asked for a map that reads as scattered, and a perfectly plotted
+ * spiral is the opposite — a figure, not a place. So every film is displaced a
+ * fixed distance in a golden-angle direction, which reads as a hand-drawn line
+ * because the deviations never fall into a pattern the eye can name.
+ *
+ * It belongs to the *anchor* rather than to the seed, and that is the whole
+ * mechanism: a nudge applied only at seeding would be pulled straight back onto
+ * the curve within a few ticks, leaving the diagram this exists to avoid.
+ *
+ * Measured on a 124-film library: mean displacement 6px, worst 13px, and
+ * neighbouring turns still pass ~30px apart centre-to-centre. Raising it much
+ * beyond a quarter of `STEP` starts closing that gap, at which point two passes
+ * of the thread begin to read as one thick band.
+ */
+const THREAD_WANDER = 6;
+
+/**
+ * Where each film sits on the thread.
+ *
+ * Films with a step take their point on the curve, nudged. Films with none —
+ * around ten in a real export — are scattered in a loose band beyond the last
+ * turn: they have to be somewhere, and every position inside the spiral means a
+ * date, which for these films would be a date they were not watched on. Outside
+ * and unlinked is the only honest place, and the status line names the count so
+ * the band reads as a statement rather than as a rendering fault.
+ */
+function threadAnchors(graph: Graph, centre: Position): ReadonlyMap<string, Position> {
+  const anchors = new Map<string, Position>();
+  let reach = INNER_R;
+
+  /*
+    Indexed by position in `graph.nodes`, which is sorted by id — so which film
+    gets which nudge is arbitrary but identical on every reload. It also parts
+    the films sharing a step: consecutive golden angles are 137.5° apart, so a
+    knot opens into a small rosette instead of starting as one coincident pile,
+    which is what d3-force resolves with a random nudge.
+  */
+  graph.nodes.forEach((node, index) => {
+    if (node.order === null) return;
+    const point = spiralPoint(node.order);
+    const away = index * GOLDEN_ANGLE;
+    reach = Math.max(reach, point.r);
+    anchors.set(node.id, {
+      x: centre.x + point.x + THREAD_WANDER * Math.cos(away),
+      y: centre.y + point.y + THREAD_WANDER * Math.sin(away),
+    });
+  });
+
+  /*
+    Golden-angle spacing with a shallow radial stagger, so the undated films read
+    as a scatter rather than as a ring somebody drew on purpose. `graph.nodes` is
+    sorted by id, so which film lands where is stable across reloads.
+  */
+  const band = reach + UNDATED_GAP;
+  let placed = 0;
+  for (const node of graph.nodes) {
+    if (node.order !== null) continue;
+    const angle = placed * GOLDEN_ANGLE;
+    const r = band + (placed % 3) * 9;
+    anchors.set(node.id, {
+      x: centre.x + r * Math.cos(angle),
+      y: centre.y + r * Math.sin(angle),
+    });
+    placed += 1;
+  }
+
+  return anchors;
+}
+
+/** Every hub, and every film beside its own hub. */
+function hubMapAnchors(
+  graph: Graph,
+  width: number,
+  height: number,
+): ReadonlyMap<string, Position> {
+  const hubs = hubAnchors(orderedHubs(graph), width, height);
+  const home = homeHubs(graph);
+
+  const anchors = new Map<string, Position>(hubs);
+  for (const node of graph.nodes) {
+    if (node.kind === "hub") continue;
+    const at = hubs.get(home.get(node.id) ?? "");
+    if (at) anchors.set(node.id, at);
+  }
+  return anchors;
+}
+
+/** The year marks for a thread. Empty for anything else, since it has no years. */
+function yearMarks(graph: Graph, centre: Position): readonly YearMark[] {
+  return graph.yearStarts.map((start) => {
+    const point = spiralPoint(start.step);
+    return {
+      year: start.year,
+      x: centre.x + point.x,
+      y: centre.y + point.y,
+      angle: point.theta,
+    };
+  });
+}
+
+/* --- Forces -------------------------------------------------------------- */
+
 const LINK_DISTANCE: Record<GraphEdgeKind, number> = {
   membership: 74,
   session: 120,
   spine: 240,
+  chain: STEP,
 };
 
 const LINK_STRENGTH: Record<GraphEdgeKind, number> = {
   membership: 0.55,
   session: 0.06,
   spine: 0.05,
+  chain: 0.09,
 };
+
+/**
+ * How firmly a film is held to its place on the spiral.
+ *
+ * The anchors carry the entire meaning of the picture, so this pulls far harder
+ * than a film's pull on a hub map, and equally in both directions: the spiral has
+ * no preferred axis, unlike the hub band, which is horizontal by construction.
+ * The irregularity that keeps the map from reading as a diagram is authored into
+ * the anchor itself — see `THREAD_WANDER` — so the pull is free to be firm.
+ */
+const THREAD_PULL = 0.35;
 
 export function createLayout(
   graph: Graph,
@@ -157,19 +377,21 @@ export function createLayout(
   height: number,
   previous?: ReadonlyMap<string, Position>,
 ): LayoutHandle {
-  const ordered = orderedHubs(graph);
-  const anchors = hubAnchors(ordered, width, height);
-  const home = homeHubs(graph);
   const centre = { x: width / 2, y: height / 2 };
+  const thread = graph.shape === "thread";
+  const anchors = thread
+    ? threadAnchors(graph, centre)
+    : hubMapAnchors(graph, width, height);
   let seeded = false;
 
   const nodes: LayoutNode[] = graph.nodes.map((node, index) => {
     const isHub = node.kind === "hub";
-    const anchor =
-      (isHub ? anchors.get(node.id) : anchors.get(home.get(node.id) ?? "")) ??
-      centre;
+    const anchor = anchors.get(node.id) ?? centre;
 
-    const spread = isHub ? 0 : 34 + 5 * Math.sqrt(index);
+    // On a hub map films fan out around their hub, having nowhere better to be
+    // until the forces sort them out. On the thread the anchor already is the
+    // answer, wander and all, so a film starts exactly on it.
+    const spread = thread ? 0 : isHub ? 0 : 34 + 5 * Math.sqrt(index);
     const angle = index * GOLDEN_ANGLE;
 
     /*
@@ -208,17 +430,17 @@ export function createLayout(
           tether between neighbouring hubs, since the anchors already place them:
           asking for a short distance here would drag the scale in on itself and
           fight the anchoring. Sessions only suggest.
+
+          The chain is slacker still. On the thread the spiral is the structure,
+          and a chain strong enough to hold films a step apart would straighten
+          the curve it is drawn along. Its distance matters only inside a knot,
+          where it opens a day's films out from their shared point.
         */
         .distance((edge) => LINK_DISTANCE[edge.kind])
         .strength((edge) => LINK_STRENGTH[edge.kind]),
     )
-    // Hubs push hard so clusters read as separate places, not one mass.
-    .force(
-      "charge",
-      forceManyBody<LayoutNode>().strength((node) =>
-        node.kind === "hub" ? -820 : -110,
-      ),
-    )
+    // Charge is not among the forces here: it is a hub map's, and it is added
+    // below rather than chained, because the thread must not carry one.
     .force(
       "collide",
       forceCollide<LayoutNode>()
@@ -226,25 +448,27 @@ export function createLayout(
         .iterations(2),
     )
     /*
-      Every node is pulled toward its own anchor: hubs hard, to their place on the
-      axis; films only faintly, to the region their hub occupies.
+      Every node is pulled toward its own anchor.
 
-      The film pull is deliberately near-nothing. Membership links already hold a
-      film to its hub, and the anchor is a second, weaker claim on the same film —
-      enough to bias a cluster toward its side of the map, not enough to flatten
-      it into a rosette around a point. Raising it tightens every cluster and
-      makes the map more diagram than map, so it stays low.
+      On a hub map: hubs hard, to their place on the axis; films only faintly, to
+      the region their hub occupies. The film pull is deliberately near-nothing —
+      membership links already hold a film to its hub, and the anchor is a second,
+      weaker claim on the same film, enough to bias a cluster toward its side of
+      the map and not enough to flatten it into a rosette around a point.
+
+      On the thread, equally in both directions: a spiral has no preferred axis,
+      unlike the hub band, which is horizontal by construction.
     */
     .force(
       "x",
       forceX<LayoutNode>((node) => node.anchorX).strength((node) =>
-        node.kind === "hub" ? 0.42 : 0.02,
+        thread ? THREAD_PULL : node.kind === "hub" ? 0.42 : 0.02,
       ),
     )
     .force(
       "y",
       forceY<LayoutNode>((node) => node.anchorY).strength((node) =>
-        node.kind === "hub" ? 0.3 : 0.03,
+        thread ? THREAD_PULL : node.kind === "hub" ? 0.3 : 0.03,
       ),
     )
     // A little heavier than default, so the map glides to rest instead of
@@ -258,7 +482,29 @@ export function createLayout(
     */
     .stop();
 
-  return { nodes, edges, simulation, seeded };
+  /*
+    Charge belongs to a hub map, and only to one. Hubs push hard so clusters read
+    as separate places rather than one mass; films push a little so a cluster is
+    a spread rather than a rosette.
+
+    The thread gets none at all. Repulsion acts along the line between two films,
+    and on a spiral the nearest films are the ones before and after on the curve,
+    so that line points along the thread and its outward component inflates the
+    disc turn by turn. Measured on 124 films: a strength of −20 pushed the average
+    film a full step off the curve, and −46 pushed turn 2 into turn 3 — the thread
+    crossing itself, which is watch order becoming unreadable. Separation is left
+    to `forceCollide`, which cannot move two dots further apart than they actually
+    overlap. Omitted rather than set to zero: a zero-strength many-body force still
+    builds a quadtree on every tick.
+  */
+  if (!thread) {
+    simulation.force(
+      "charge",
+      forceManyBody<LayoutNode>().strength((node) => (node.kind === "hub" ? -820 : -110)),
+    );
+  }
+
+  return { nodes, edges, simulation, marks: yearMarks(graph, centre), seeded };
 }
 
 /** Captures where everything currently is, to seed the next layout from. */

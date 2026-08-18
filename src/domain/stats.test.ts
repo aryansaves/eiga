@@ -17,7 +17,13 @@ function library(
   watches: readonly WatchEvent[] = [],
   ratings: readonly [FilmId, number][] = [],
 ): Library {
-  return { films, watches, ratings: new Map(ratings), reviews: new Map() };
+  return {
+    films,
+    watches,
+    ratings: new Map(ratings),
+    reviews: new Map(),
+    likes: new Set(),
+  };
 }
 
 const spread = (count: number, year: number, directors: readonly string[] = []) =>

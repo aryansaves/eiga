@@ -33,6 +33,7 @@ function library(
     watches,
     ratings: new Map(ratings),
     reviews: new Map(),
+    likes: new Set(),
   };
 }
 
@@ -123,7 +124,7 @@ test("films attach to hubs, never to each other", () => {
   );
   assert.equal(graph.edges.length, 3);
   assert.ok(graph.edges.every((edge) => edge.target === "hub:decade:1970"));
-  assert.equal(graph.hubKind, "decade");
+  assert.equal(graph.groupKind, "decade");
 });
 
 test("edge count stays linear where a clique would explode", () => {
@@ -211,7 +212,7 @@ test("director hubs drop in without changing the topology", () => {
     byDirector,
   );
 
-  assert.equal(graph.hubKind, "director");
+  assert.equal(graph.groupKind, "director");
   assert.equal(graph.edges.length, 4); // c belongs to two hubs
   assert.equal(
     graph.nodes.find((node) => node.id === "film:c")?.degree,
@@ -491,7 +492,7 @@ test("rating hubs are half-star bands, labelled as ticks", () => {
     byRating,
   );
 
-  assert.equal(graph.hubKind, "rating");
+  assert.equal(graph.groupKind, "rating");
   assert.deepEqual(orderedHubs(graph).map((hub) => hub.label), ["½", "3", "5"]);
   // b and c share one band rather than each getting their own.
   assert.equal(
@@ -513,7 +514,7 @@ test("watch years come from the diary, and a rewatch bridges two of them", () =>
     byWatchYear,
   );
 
-  assert.equal(graph.hubKind, "watch year");
+  assert.equal(graph.groupKind, "watch year");
   assert.deepEqual(orderedHubs(graph).map((hub) => hub.label), ["2022", "2024"]);
 
   /*
