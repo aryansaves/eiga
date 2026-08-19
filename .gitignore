@@ -54,3 +54,20 @@ CLAUDE.local.md
 
 # Claude Code generated local memory is normally outside the repo; keep any accidental local copy out
 .claude/projects/
+
+# Claude Code per-machine state. The tracked parts of .claude/ (agents, rules,
+# skills, settings.json, launch.json) are deliberately shared; these are not —
+# they are whatever the current machine happens to have configured. No trailing
+# slashes: these are directories on most setups but a single file on some, and
+# a slash-suffixed pattern silently matches only the former.
+.claude/commands
+.claude/hooks
+.claude/workflows
+.claude/output-styles
+.claude/routines
+.claude/scheduled_tasks.json
+.claude/loop.md
+
+# Local MCP server config. Can carry per-machine paths and credentials, and this
+# project needs no MCP server to build, test or run.
+.mcp.json
