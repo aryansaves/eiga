@@ -11,6 +11,10 @@
  * layer below is a pure function of the library, so switching between the demo
  * and a real import is a single state change and nothing needs to be reset by
  * hand.
+ *
+ * There are three libraries it can be showing, not two — nothing, the demo, or
+ * yours — and the first of those is the one a visitor arrives on. See `NOTHING`
+ * and `landing` below.
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -20,11 +24,13 @@ import { FilterControl } from "@/components/FilterControl.tsx";
 import { GraphView } from "@/components/GraphView.tsx";
 import { ImportControl, ImportReport } from "@/components/ImportControl.tsx";
 import { Inspector } from "@/components/Inspector.tsx";
+import { Landing } from "@/components/Landing.tsx";
 import { SearchControl } from "@/components/SearchControl.tsx";
 import { demoLibrary } from "@/domain/demo.ts";
 import { filtersFor, narrow, type FilterId } from "@/domain/filters.ts";
 import { searchFilms } from "@/domain/search.ts";
 import { observe } from "@/domain/stats.ts";
+import { emptyLibrary } from "@/domain/types.ts";
 import { axesFor, resolveAxis, type AxisId } from "@/graph/axes.ts";
 import { buildGraph, groupCount } from "@/graph/build.ts";
 import { buildThread, unthreaded } from "@/graph/thread.ts";
@@ -34,9 +40,32 @@ import { importLetterboxdFiles, type ImportResult } from "@/import/letterboxd.ts
 /** Whether a save is idle, in flight, or has just failed. */
 type SaveState = "idle" | "working" | "failed";
 
+/**
+ * The library before there is one.
+ *
+ * Module-level rather than built per render, and that is load-bearing: every memo
+ * below keys on `library` by identity, so a fresh `emptyLibrary()` each render
+ * would rebuild the graph, the statistics and the filters on every keystroke the
+ * landing sees. One frozen-by-type instance costs nothing and changes never.
+ *
+ * Its whole point is that the derivation layer needs no empty case. `axesFor`
+ * answers Decade, `buildThread` answers an empty graph, `observe` answers null,
+ * `fitToFrame` answers the identity transform — the pipeline runs unchanged and
+ * produces nothing, which is exactly right, because nothing is what there is.
+ */
+const NOTHING = emptyLibrary();
+
 export function Atlas() {
   const demo = useMemo(() => demoLibrary(), []);
   const [imported, setImported] = useState<ImportResult | null>(null);
+  /**
+   * Whether the visitor asked to see the demo.
+   *
+   * A separate flag rather than a third value folded into `imported`, because the
+   * two answer different questions and can both be true: an import that failed
+   * while the demo was on screen has to leave the demo up *and* show the report.
+   */
+  const [demoAsked, setDemoAsked] = useState(false);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   /*
     The diary thread, which `axesFor` puts first. Held as an id rather than
@@ -57,11 +86,23 @@ export function Atlas() {
   const surfaceRef = useRef<SVGSVGElement | null>(null);
 
   /*
-    An import that produced nothing usable leaves the demo on screen rather than
-    replacing a working map with an empty one. The report explains why.
+    Which of the three libraries is on screen.
+
+    An import that produced nothing usable falls back rather than replacing a
+    working map with an empty one — to the demo if that is where the user was, and
+    otherwise to nothing at all. Either way the report explains why, so a failed
+    import never silently looks like an empty library.
   */
   const usable = imported !== null && imported.library.films.length > 0;
-  const library = usable && imported ? imported.library : demo;
+  const library = usable && imported ? imported.library : demoAsked ? demo : NOTHING;
+  /*
+    The front door: no library of either kind. Not derived from `library === NOTHING`
+    but from the same two facts that chose it, so the branch cannot drift from the
+    choice. Everything the loaded map draws is suppressed here — there is no axis to
+    pick, nothing to search, nothing to inspect and nothing to save — and the
+    surface shows its graticule and nothing else.
+  */
+  const landing = !usable && !demoAsked;
 
   /*
     Which axes this library can be drawn on, and which of them is actually in
@@ -128,8 +169,15 @@ export function Atlas() {
     setFocusedId(null);
   }, []);
 
+  /*
+    Back to the front door. Clears the demo as well as the import: it is reached
+    from the report, and the report is only ever shown over a library the user
+    chose, so "start over" has to undo both choices or it would strand someone on
+    the demo with no way back to the door they came in through.
+  */
   const reset = useCallback(() => {
     setImported(null);
+    setDemoAsked(false);
     setFocusedId(null);
   }, []);
 
@@ -199,87 +247,151 @@ export function Atlas() {
         if (files.length > 0) void load(files);
       }}
     >
-      <div className="absolute inset-0">
-        <GraphView
-          graph={graph}
-          focusedId={focused}
-          onFocus={setFocusedId}
-          lit={lit}
-          /*
-            The search's own answer, not `lit`. A query names a film, so the view
-            can travel to it; a highlight chip lights a third of the library, which
-            has nowhere to travel. `GraphView.travel` explains why the two are
-            separate props rather than one.
-          */
-          travel={found}
-          surfaceRef={surfaceRef}
-        />
-      </div>
-
-      <div className="from-void via-void/85 pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-8 bg-linear-to-b to-transparent px-7 pt-7 pb-20 sm:px-12">
-        <div>
-          <p className="eiga-mark text-paper text-sm">EIGA</p>
-          <p className="eiga-annotation mt-2">Your cinema, mapped.</p>
-          <div className="pointer-events-auto">
-            <AxisControl options={options} active={active.id} onSelect={setAxis} />
-            <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
-            <FilterControl
-              options={filters}
-              active={highlights}
-              onToggle={toggleHighlight}
-            />
-          </div>
-        </div>
-        <div className="pointer-events-auto flex flex-col items-end gap-4">
-          <ImportControl onFiles={load} />
-          {/*
-            The same hairline box as the import, and no quieter. It was an
-            unadorned line of annotation text on the grounds that saving is
-            something you do after the map has told you something rather than the
-            reason you came — but that reasoning ranked two *acts* by their
-            importance, and the thing a control has to communicate first is that it
-            is a control at all. Hierarchy is carried by order and by the subtitle
-            under the import instead, which is where it costs nothing.
-
-            Its label still doubles as the only status report; the box simply grows
-            to hold it.
-          */}
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saving === "working"}
-            className="eiga-button"
-          >
-            {saving === "working"
-              ? "Saving…"
-              : saving === "failed"
-                ? "Could not save — try again"
-                : "Save this map"}
-          </button>
-        </div>
-      </div>
-
-      <div className="from-void via-void/85 pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-8 bg-linear-to-t to-transparent px-7 pt-20 pb-7 sm:px-12">
-        <div className="pointer-events-auto">
-          <Inspector
+      {/*
+        The surface. On the front door there is no map to draw, so the graticule is
+        rendered on its own rather than as an empty `GraphView`: a map of zero films
+        would still announce itself to a screen reader as "Map of 0 films across 0
+        hub groups", and starting a force simulation in order to place nothing is
+        work that comes with a description worse than no description at all.
+      */}
+      {landing ? (
+        <div className="eiga-grid absolute inset-0" />
+      ) : (
+        <div className="absolute inset-0">
+          <GraphView
             graph={graph}
-            library={library}
             focusedId={focused}
             onFocus={setFocusedId}
-            observation={observation}
+            lit={lit}
+            /*
+              The search's own answer, not `lit`. A query names a film, so the view
+              can travel to it; a highlight chip lights a third of the library, which
+              has nowhere to travel. `GraphView.travel` explains why the two are
+              separate props rather than one.
+            */
+            travel={found}
+            surfaceRef={surfaceRef}
           />
         </div>
+      )}
 
-        <div className="pointer-events-auto shrink-0 text-right">
-          <p className="eiga-annotation">{status}</p>
-          <p className="eiga-annotation mt-1.5">Nothing leaves this browser</p>
-          {imported && (
-            <div className="mt-4">
-              <ImportReport result={imported} onReset={reset} />
+      {landing ? (
+        <Landing
+          onFiles={load}
+          onDemo={() => setDemoAsked(true)}
+          report={imported}
+          onReset={reset}
+        />
+      ) : (
+        <>
+          {/*
+            Both bands wrap. `justify-between` holds the two columns apart at any
+            width that fits them, but below roughly 520px they stopped fitting and
+            the band is `overflow-hidden`, so the right-hand column was not merely
+            cramped — on a 375px screen it sat 130px past the edge, which put the
+            import control, the save control and the way back out of the demo all
+            off the display at once. Wrapping is a no-op above that width and the
+            difference between cramped and unreachable below it.
+
+            This is a safety fix, not a phone layout. What an atlas should do with a
+            screen too narrow to hold both the map and its instruments is a design
+            question, and guessing at it here would answer it badly.
+          */}
+          <div className="from-void via-void/85 pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start justify-between gap-8 bg-linear-to-b to-transparent px-7 pt-7 pb-20 sm:px-12">
+            <div>
+              {/*
+                The same heading the landing carries, at caption size. An `h1` in
+                both states rather than a `p` here and an `h1` there: the inspector
+                below renders the focused film's title as an `h2`, which needs
+                something above it, and two states of one page disagreeing about
+                their outline is the kind of thing only a screen reader ever sees.
+              */}
+              <h1 className="eiga-mark text-paper text-sm">EIGA</h1>
+              <p className="eiga-annotation mt-2">Your cinema, mapped.</p>
+              <div className="pointer-events-auto">
+                <AxisControl options={options} active={active.id} onSelect={setAxis} />
+                <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
+                <FilterControl
+                  options={filters}
+                  active={highlights}
+                  onToggle={toggleHighlight}
+                />
+              </div>
             </div>
-          )}
-        </div>
-      </div>
+            <div className="pointer-events-auto flex flex-col items-end gap-4 text-right">
+              <ImportControl onFiles={load} />
+              {/*
+                The same hairline box as the import, and no quieter. It was an
+                unadorned line of annotation text on the grounds that saving is
+                something you do after the map has told you something rather than the
+                reason you came — but that reasoning ranked two *acts* by their
+                importance, and the thing a control has to communicate first is that it
+                is a control at all. Hierarchy is carried by order and by the subtitle
+                under the import instead, which is where it costs nothing.
+
+                Its label still doubles as the only status report; the box simply grows
+                to hold it.
+              */}
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saving === "working"}
+                className="eiga-button"
+              >
+                {saving === "working"
+                  ? "Saving…"
+                  : saving === "failed"
+                    ? "Could not save — try again"
+                    : "Save this map"}
+              </button>
+            </div>
+          </div>
+
+          <div className="from-void via-void/85 pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-8 bg-linear-to-t to-transparent px-7 pt-20 pb-7 sm:px-12">
+            <div className="pointer-events-auto">
+              <Inspector
+                graph={graph}
+                library={library}
+                focusedId={focused}
+                onFocus={setFocusedId}
+                observation={observation}
+              />
+            </div>
+
+            {/*
+              Allowed to shrink. It was `shrink-0` so the status line would never
+              wrap mid-phrase, but refusing to shrink is how it left the viewport
+              entirely — a wrapped status line is legible and an absent one is not.
+            */}
+            <div className="pointer-events-auto text-right">
+              <p className="eiga-annotation">{status}</p>
+              <p className="eiga-annotation mt-1.5">Nothing leaves this browser</p>
+              {/*
+                One corner answers "how do I get out of this library", in both
+                senses of it. After an import that is the report, which carries its
+                own way back; on the demo there is no report to carry one, and
+                without this the front door became unreachable the moment the
+                landing stopped being a state you could return to by clearing an
+                import. A visitor who came to look at the demo was stranded on
+                someone else's map.
+
+                Worded differently on purpose. "Start over" discards a library you
+                built and is worth reading twice; leaving the demo discards nothing
+                and should not be dressed up as though it might.
+              */}
+              {imported ? (
+                <div className="mt-4">
+                  <ImportReport result={imported} onReset={reset} />
+                </div>
+              ) : (
+                <button type="button" onClick={reset} className="eiga-button mt-4">
+                  Leave the demo
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {dropping && (
         <div className="border-signal/30 pointer-events-none absolute inset-5 flex items-center justify-center border">

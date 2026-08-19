@@ -28,7 +28,7 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
   const sole = options.length === 1 ? options[0] : null;
 
   return (
-    <div className="mt-5 flex items-center gap-3">
+    <div className="mt-5 flex flex-wrap items-center gap-3">
       <span className="eiga-annotation">Axis</span>
       <span className="bg-rule h-px w-4 shrink-0" aria-hidden="true" />
 
@@ -46,7 +46,17 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
         */
         <p className="eiga-annotation text-paper-mid">{sole.label}</p>
       ) : (
-        <div role="group" aria-label="Group films by" className="flex items-center gap-3">
+        <div
+          role="group"
+          aria-label="Group films by"
+          /*
+            Wraps rather than overflows. Five axes and a phone-width screen do not
+            fit on one line, and the band this sits in is `overflow-hidden`, so the
+            row did not scroll — the last axis was simply cut in half. `gap-3`
+            already supplies the row gap, so wrapping costs no extra rule.
+          */
+          className="flex flex-wrap items-center gap-3"
+        >
           {options.map((axis) => {
             const selected = axis.id === active;
             return (

@@ -17,6 +17,12 @@
  * Diagnostics are structured and content-free by construction (see
  * src/import/letterboxd.ts), so displaying every one of them cannot leak a
  * title or a review.
+ *
+ * Neither export sets its own text alignment. Both are used twice — in the
+ * top-right corner of a loaded map, where everything is flush right, and in the
+ * landing block, where everything is flush left — and a component that pinned
+ * `text-right` internally would have to be told which context it was in. The
+ * caller already knows, because the caller is the one that positioned it.
  */
 
 import type { ImportResult } from "@/import/letterboxd.ts";
@@ -30,7 +36,7 @@ export function ImportControl({
   readonly onFiles: (files: readonly File[]) => void;
 }) {
   return (
-    <div className="text-right">
+    <div>
       {/*
         The label wraps the button and nothing else.
 
@@ -74,13 +80,14 @@ export function ImportReport({
   const summary = [
     `${result.accepted.length} read`,
     result.skipped.length > 0 ? `${result.skipped.length} skipped` : null,
-    errors.length > 0 ? `${errors.length} problems` : null,
+    // "1 problems" is the sort of thing that makes a careful tool look careless.
+    errors.length > 0 ? `${errors.length} problem${errors.length === 1 ? "" : "s"}` : null,
   ]
     .filter((part): part is string => part !== null)
     .join(" · ");
 
   return (
-    <div className="text-right">
+    <div>
       {result.diagnostics.length > 0 ? (
         <details className="group/report">
           <summary className="eiga-annotation hover:text-paper-mid cursor-pointer list-none transition-colors">
@@ -114,12 +121,15 @@ export function ImportReport({
         <p className="eiga-annotation">{summary}</p>
       )}
 
-      <button
-        type="button"
-        onClick={onReset}
-        className="eiga-button mt-3"
-      >
-        Show the demo again
+      {/*
+        "Start over", not "Show the demo again". It used to mean the latter
+        because the demo was what the app fell back to, so clearing an import
+        landed you on someone else's map. The fallback is now an empty canvas and
+        the front door, which is a different act and needs a different word — and
+        this is the only way back to that door once a library is loaded.
+      */}
+      <button type="button" onClick={onReset} className="eiga-button mt-3">
+        Start over
       </button>
     </div>
   );
