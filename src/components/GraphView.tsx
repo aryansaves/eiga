@@ -8,9 +8,11 @@
  * by which element it lands on:
  *
  *  - React owns structure and everything derived from the `Graph`. It renders one
- *    `<g>` per node and one `<line>` per edge, and expresses selection, rating
- *    and lit state as `data-` attributes that globals.css turns into a visual
- *    hierarchy.
+ *    `<g>` per node and one line per edge, and expresses selection, rating and lit
+ *    state as `data-` attributes that globals.css turns into a visual hierarchy.
+ *    The year graticule counts as structure too: which years exist, and where each
+ *    month falls inside one, are facts about the calendar rather than about where
+ *    the simulation came to rest.
  *  - The effects here own everything derived from *coordinates*, and write it
  *    straight to the DOM through refs: `transform` and the line endpoints on
  *    every tick, and `data-named` — which titles the map has room for — whenever
@@ -34,8 +36,9 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { select } from "d3-selection";
-import { zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior } from "d3-zoom";
+import { zoom, zoomIdentity, zoomTransform, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 
+import { monthStarts } from "@/domain/calendar.ts";
 import { RATING_MAX } from "@/domain/types.ts";
 import {
   groupCount,
@@ -51,11 +54,13 @@ import {
   filmRadius,
   fitToFrame,
   hubRadius,
-  MARK_TICK,
+  MONTH_TICK,
   positionsOf,
   settle,
+  YEAR_LABEL_GAP,
+  YEAR_WIDTH,
   type LayoutHandle,
-  type LayoutNode,
+  type Position,
 } from "@/viz/layout.ts";
 
 /**
@@ -80,6 +85,39 @@ const ZOOM_STEP = 0.06;
  */
 const LAYOUT_BUCKET = 64;
 
+/**
+ * How far the December→January link reaches past its own ends, in layout px.
+ *
+ * Every other chain edge joins two films a few days apart and is drawn straight.
+ * This one crosses a year boundary, and because the years are stacked as rows that
+ * means it runs from somewhere near the right of one row to somewhere near the left
+ * of the row below — the width of the whole map. Drawn straight it would cut a
+ * diagonal through every film in both rows.
+ *
+ * So it is drawn as a cubic instead, with both control points displaced *outward*
+ * and half a row down. The curve leaves to the right, flattens out through the empty
+ * band between the rows, and re-enters from the left: a carriage return, which is
+ * exactly what it is. `wrapPath` works out why the arithmetic lands in the gutter.
+ */
+const WRAP_REACH = 44;
+
+/**
+ * The path for a wrap edge: out to the right, along the gutter, back in at the left.
+ *
+ * The two control points sit at the same height, half way between the rows, which is
+ * what puts the flat middle of the curve in the empty band. Worth showing, since it
+ * is the one thing this function has to get right: for a cubic, the point at
+ * t = ½ is (P₀ + 3P₁ + 3P₂ + P₃) ÷ 8, and with both controls at y + Δ/2 that is
+ * y + (1 + 3·½ + 3·½ + 1)·Δ/8 … = y + Δ/2 exactly. The reaches cancel in x for the
+ * same reason, so the sweep is centred whatever the dates at either end happen to be.
+ */
+function wrapPath(from: Position, to: Position): string {
+  const sag = (to.y - from.y) / 2;
+  const c1 = `${(from.x + WRAP_REACH).toFixed(2)} ${(from.y + sag).toFixed(2)}`;
+  const c2 = `${(to.x - WRAP_REACH).toFixed(2)} ${(to.y - sag).toFixed(2)}`;
+  return `M${from.x.toFixed(2)} ${from.y.toFixed(2)}C${c1} ${c2} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
+}
+
 interface Viewport {
   readonly width: number;
   readonly height: number;
@@ -100,6 +138,20 @@ export interface GraphViewProps {
    * dims the map and reports zero, where null leaves it at full strength.
    */
   readonly lit: ReadonlySet<string> | null;
+  /**
+   * Films the view should travel to, or null to return to wherever it was.
+   *
+   * Deliberately a separate prop from `lit` rather than derived from it. `lit` is
+   * the union of the search and the highlight chips, and a chip lighting forty
+   * films spread across the whole map has nothing to travel *to* — framing that
+   * set is a zoom out to the map already on screen, so pressing "Liked" would jerk
+   * the view for no gain. A search names a film, which is a place. Passing the
+   * search's own answer separately keeps that distinction in `Atlas`, where it is
+   * a fact about the query, instead of teaching this component what a query is.
+   *
+   * Film ids, like `lit`, for the same reason: see `litState`.
+   */
+  readonly travel: ReadonlySet<string> | null;
   /**
    * Receives the live surface, for anything that needs the drawn map itself.
    *
@@ -124,34 +176,56 @@ function filmDescription(node: GraphNode): string {
  * What the map is, for a screen reader.
  *
  * Branches on topology because the two say genuinely different things: a hub map
- * groups films, and the thread orders them. `groupCount` supplies the number in
- * both cases, so this can never disagree with the status line beneath the map.
+ * groups films, and the thread places them on a calendar. `groupCount` supplies the
+ * number in both cases, so this can never disagree with the status line beneath the
+ * map.
+ *
+ * The thread wording carries the span because the row stack is the one thing a
+ * screen reader cannot see and the year labels are the only place it is written
+ * down. Saying "in the order they were watched" — true of the spiral this replaced —
+ * would now describe the sequence and omit the scale.
  */
 function mapDescription(graph: Graph, films: number): string {
   const groups = groupCount(graph);
-  return graph.shape === "thread"
-    ? `Map of ${films} films in the order they were watched, across ${groups} days`
-    : `Map of ${films} films across ${groups} ${graph.groupKind} groups`;
+  if (graph.shape !== "thread") {
+    return `Map of ${films} films across ${groups} ${graph.groupKind} groups`;
+  }
+  const first = graph.years[0];
+  const last = graph.years[graph.years.length - 1];
+  const span =
+    first === undefined ? "" : first === last ? ` in ${first}` : ` from ${first} to ${last}`;
+  return `Map of ${films} films on the days they were watched, across ${groups} days${span}`;
 }
 
-export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphViewProps) {
+export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }: GraphViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const viewportRef = useRef<SVGGElement>(null);
   const nodeEls = useRef(new Map<string, SVGGElement>());
-  const edgeEls = useRef(new Map<string, SVGLineElement>());
+  const edgeEls = useRef(new Map<string, SVGLineElement | SVGPathElement>());
   /**
-   * Year marks, keyed by year, and their labels separately.
+   * The year rows, keyed by year.
    *
-   * Two maps because a mark is written twice: the group is turned to lie along the
-   * radius, and the label inside it is turned back so it stays upright. A rotated
-   * year would read as a decorative sunburst, which is the opposite of a graticule.
+   * One element each, not four: a row's rule, its twelve month ticks and its number
+   * are all placed relative to the row's own left end, so the only coordinate the
+   * simulation contributes is where that end is. Everything inside is a fixed offset
+   * React can write once.
    */
-  const markEls = useRef(new Map<number, SVGGElement>());
-  const markLabelEls = useRef(new Map<number, SVGGElement>());
+  const rowEls = useRef(new Map<number, SVGGElement>());
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   /** Set once the user pans or zooms, after which the view is theirs to keep. */
   const exploredRef = useRef(false);
+  /**
+   * The view a search took the user away from, or null if there is nothing to
+   * return them to.
+   *
+   * Saved on the transition into searching rather than on every keystroke, so
+   * refining a query narrows the framing without losing the place to come back to.
+   * Cleared the moment the user pans or zooms themselves: restoring a pre-search
+   * framing over a gesture they just made would undo their own work on a keystroke
+   * they did not make.
+   */
+  const beforeTravelRef = useRef<ZoomTransform | null>(null);
   /**
    * The live layout, and the exact viewport it should be framed in.
    *
@@ -249,7 +323,7 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
 
     const named = visibleLabels({
       nodes: layout.nodes,
-      marks: layout.marks,
+      rows: layout.rows,
       lit: litRef.current,
       scale,
     });
@@ -270,7 +344,11 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
       .scaleExtent([0.25, 6])
       .on("zoom", (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
         // A null sourceEvent means we moved the view, not the user.
-        if (event.sourceEvent) exploredRef.current = true;
+        if (event.sourceEvent) {
+          exploredRef.current = true;
+          // And once they have moved it, there is nowhere to put them back.
+          beforeTravelRef.current = null;
+        }
         viewport.setAttribute("transform", event.transform.toString());
 
         const { k } = event.transform;
@@ -298,12 +376,14 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
     has moved the view themselves — re-centring someone's map out from under them
     while they are reading it is worse than an imperfect fit.
   */
-  const frameTo = (nodes: readonly LayoutNode[], viewport: Viewport | null) => {
+  const frameTo = (layout: LayoutHandle, viewport: Viewport | null) => {
     const svg = svgRef.current;
     const behaviour = zoomRef.current;
     if (!svg || !behaviour || !viewport || exploredRef.current) return;
 
-    const fit = fitToFrame(nodes, viewport.width, viewport.height);
+    // The whole handle rather than its nodes, because a year row is part of the
+    // extent the map has to be framed to and is not a node — see `fitToFrame`.
+    const fit = fitToFrame(layout.nodes, viewport.width, viewport.height, layout.rows);
     behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
   };
 
@@ -338,35 +418,38 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
           ?.setAttribute("transform", `translate(${node.x.toFixed(2)} ${node.y.toFixed(2)})`);
       }
       for (const edge of layout.edges) {
-        const line = edgeEls.current.get(edge.id);
+        const el = edgeEls.current.get(edge.id);
         const from = endpoint(edge.source);
         const to = endpoint(edge.target);
-        if (!line || !from || !to) continue;
-        line.setAttribute("x1", from.x.toFixed(2));
-        line.setAttribute("y1", from.y.toFixed(2));
-        line.setAttribute("x2", to.x.toFixed(2));
-        line.setAttribute("y2", to.y.toFixed(2));
+        if (!el || !from || !to) continue;
+        // A wrap is a `<path>` and everything else a `<line>` — see `wrapPath`.
+        if (edge.kind === "wrap") {
+          el.setAttribute("d", wrapPath(from, to));
+          continue;
+        }
+        el.setAttribute("x1", from.x.toFixed(2));
+        el.setAttribute("y1", from.y.toFixed(2));
+        el.setAttribute("x2", to.x.toFixed(2));
+        el.setAttribute("y2", to.y.toFixed(2));
       }
     };
 
-    const frame = () => frameTo(layout.nodes, sizeRef.current);
+    const frame = () => frameTo(layout, sizeRef.current);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     /*
-      Year marks are placed once and never again. They are the map's graticule:
-      fixed to the ideal curve while the films settle around it, which is the
+      Year rows are placed once and never again. They are the map's graticule:
+      fixed to the calendar while the films settle against it, which is the
       relationship a printed map has between its grid and its terrain — and a
       graticule that drifted with the terrain would be measuring nothing.
+
+      Only the row's left end is written here. The rule, the twelve month ticks and
+      the number are all offsets from it, so React has already placed them.
     */
-    for (const mark of layout.marks) {
-      const degrees = ((mark.angle * 180) / Math.PI).toFixed(2);
-      markEls.current
-        .get(mark.year)
-        ?.setAttribute(
-          "transform",
-          `translate(${mark.x.toFixed(2)} ${mark.y.toFixed(2)}) rotate(${degrees})`,
-        );
-      markLabelEls.current.get(mark.year)?.setAttribute("transform", `rotate(-${degrees})`);
+    for (const row of layout.rows) {
+      rowEls.current
+        .get(row.year)
+        ?.setAttribute("transform", `translate(${row.left.toFixed(2)} ${row.y.toFixed(2)})`);
     }
 
     /*
@@ -445,8 +528,75 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
   useLayoutEffect(() => {
     const layout = layoutRef.current;
     if (!layout || animatingRef.current) return;
-    frameTo(layout.nodes, size);
+    frameTo(layout, size);
   }, [size]);
+
+  /*
+    Take the user to the match, and bring them back.
+
+    Searching dims rather than filters, which keeps the map's shape — but on a
+    hundred-film library the answer can be a single lit dot two screens away, and a
+    highlight nobody can find is the same as no answer. So a search that matched
+    something frames what it matched, and clearing the field returns the view to
+    where it was before the first match.
+
+    Ordered before the `lit` effect on purpose. This changes the scale, and the
+    scale is what decides how many titles fit; `applyNames` there then runs last,
+    against the framing the user is actually about to read.
+
+    Framed instantly rather than travelled to over 400ms. That is the same idiom as
+    `frameTo`, and the alternative costs a `d3-transition` import plus a moving
+    target for the next keystroke to interrupt — the citron ring on the match is
+    what says "this is the thing", and it is already there when the view arrives.
+
+    Never sets `exploredRef`: a programmatic transform arrives with
+    `sourceEvent === null`, so d3 cannot mistake this for the user panning, and a
+    search does not cost them the automatic framing on their next resize.
+  */
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    const behaviour = zoomRef.current;
+    const layout = layoutRef.current;
+    const viewport = sizeRef.current;
+    if (!svg || !behaviour || !layout || !viewport) return;
+
+    if (travel === null) {
+      const held = beforeTravelRef.current;
+      if (!held) return;
+      beforeTravelRef.current = null;
+      behaviour.transform(select(svg), held);
+      return;
+    }
+
+    /*
+      Mid-re-sort the coordinates are in flight, so there is nothing to frame:
+      films are somewhere between two axes and the fit would land the view on empty
+      space. Skipping leaves the map where it is, which is the better failure — and
+      because nothing was saved, clearing the field correctly does nothing either.
+    */
+    if (animatingRef.current) return;
+
+    const matches = layout.nodes.filter(
+      (node) => node.filmId !== null && travel.has(node.filmId),
+    );
+    // A search that matched nothing has no place to go. The count beside the field
+    // is the report; the view stays put rather than framing an empty extent.
+    if (matches.length === 0) return;
+
+    beforeTravelRef.current ??= zoomTransform(svg);
+
+    /*
+      No rows passed, unlike `frameTo`: this frames the films that matched, not the
+      calendar they sit on. Including the graticule would widen every fit to a whole
+      year and defeat the point of travelling at all.
+
+      `fitToFrame` caps the scale at 1, which is what stops one match from becoming
+      one enormous dot filling the screen — a single film's extent is some 13px
+      across, so the uncapped fit would be about 90×.
+    */
+    const fit = fitToFrame(matches, viewport.width, viewport.height);
+    behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
+  }, [travel]);
 
   /*
     Searching or filtering changes which titles the map should spend its space on:
@@ -496,19 +646,14 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
     else nodeEls.current.delete(id);
   };
 
-  const registerEdge = (id: string) => (el: SVGLineElement | null) => {
+  const registerEdge = (id: string) => (el: SVGLineElement | SVGPathElement | null) => {
     if (el) edgeEls.current.set(id, el);
     else edgeEls.current.delete(id);
   };
 
-  const registerMark = (year: number) => (el: SVGGElement | null) => {
-    if (el) markEls.current.set(year, el);
-    else markEls.current.delete(year);
-  };
-
-  const registerMarkLabel = (year: number) => (el: SVGGElement | null) => {
-    if (el) markLabelEls.current.set(year, el);
-    else markLabelEls.current.delete(year);
+  const registerRow = (year: number) => (el: SVGGElement | null) => {
+    if (el) rowEls.current.set(year, el);
+    else rowEls.current.delete(year);
   };
 
   const toggle = (id: string) => onFocus(id === focusedId ? null : id);
@@ -540,37 +685,73 @@ export function GraphView({ graph, focusedId, onFocus, lit, surfaceRef }: GraphV
           */}
 
           {/*
-            The year marks, underneath everything — a graticule the map is drawn
+            The year rows, underneath everything — a graticule the map is drawn
             over, never a thing in it. Deliberately not nodes: a year that could be
-            clicked, focused or counted would be a hub, and the thread has none.
-            Rendered from `graph.yearStarts`, positioned from `layout.marks`, which
-            is the same division of labour as every node here.
+            clicked, focused or counted would be a hub, and the timeline has none.
+
+            Each row is a group placed at its own January 1st, so everything in it is
+            written in offsets from there: the rule runs the width of a year, the
+            ticks stand at the true start of each month, and the number sits out in
+            the left margin. Rendered from `graph.years`, positioned from
+            `layout.rows`, which is the same division of labour as every node here.
           */}
           <g aria-hidden="true">
             {ready &&
-              graph.yearStarts.map((start) => (
-                <g key={start.year} ref={registerMark(start.year)} className="eiga-year">
-                  <line x1={-MARK_TICK} x2={MARK_TICK} />
-                  <g ref={registerMarkLabel(start.year)}>
-                    <text x={MARK_TICK} dx="0.7em" dy="0.32em">
-                      {start.year}
-                    </text>
-                  </g>
+              graph.years.map((year) => (
+                <g key={year} ref={registerRow(year)} className="eiga-year">
+                  <line className="eiga-year-rule" x2={YEAR_WIDTH} />
+                  {/*
+                    Twelve, and unevenly spaced: February is 28 days of 365, so the
+                    March tick belongs a few pixels left of an even twelfth. The same
+                    function places the films, which is the point of `domain/calendar`.
+                  */}
+                  {monthStarts(year).map((fraction, month) => {
+                    const x = fraction * YEAR_WIDTH;
+                    return (
+                      <line
+                        key={month}
+                        className="eiga-year-tick"
+                        x1={x}
+                        x2={x}
+                        y1={-MONTH_TICK}
+                        y2={MONTH_TICK}
+                      />
+                    );
+                  })}
+                  <text x={-YEAR_LABEL_GAP} dy="0.32em">
+                    {year}
+                  </text>
                 </g>
               ))}
           </g>
 
           <g>
             {ready &&
-              graph.edges.map((edge) => (
-                <line
-                  key={edge.id}
-                  ref={registerEdge(edge.id)}
-                  className="eiga-edge"
-                  data-kind={edge.kind}
-                  data-state={edgeState(edge)}
-                />
-              ))}
+              graph.edges.map((edge) =>
+                /*
+                  A wrap crosses a year boundary, which on a stacked map is the width
+                  of the whole thing, so it is the one edge drawn as a curve rather
+                  than a straight line. Both branches carry identical attributes: the
+                  element differs, the state does not.
+                */
+                edge.kind === "wrap" ? (
+                  <path
+                    key={edge.id}
+                    ref={registerEdge(edge.id)}
+                    className="eiga-edge"
+                    data-kind={edge.kind}
+                    data-state={edgeState(edge)}
+                  />
+                ) : (
+                  <line
+                    key={edge.id}
+                    ref={registerEdge(edge.id)}
+                    className="eiga-edge"
+                    data-kind={edge.kind}
+                    data-state={edgeState(edge)}
+                  />
+                ),
+              )}
           </g>
 
           <g>

@@ -5,8 +5,9 @@
  * are unreadable and clogged". The mechanism this replaces was a single zoom
  * threshold — every title at once past 1.6× — which is not a hierarchy, it is a
  * switch. A hundred titles arriving together are a wall of text with a map behind
- * it, and on the diary spiral it is worse than on a hub map: 124 films inside a
- * 438px disc is the densest thing EIGA draws.
+ * it, and on the diary timeline it is worse than on a hub map: a busy year puts a
+ * hundred films along one 1,040px row, so their titles overlap several deep while
+ * the dots themselves are still comfortably apart.
  *
  * So names are *chosen* rather than revealed. Boxes are laid down in priority
  * order and a title is kept only if its box misses every box already kept — the
@@ -33,7 +34,7 @@
  * is this returning empty.
  */
 
-import { MARK_TICK, type LayoutNode, type YearMark } from "./layout.ts";
+import { YEAR_LABEL_GAP, type LayoutNode, type YearRow } from "./layout.ts";
 
 /** A label's footprint, in map coordinates. */
 export interface Box {
@@ -53,8 +54,8 @@ export interface Box {
  */
 export interface LabelPlan {
   readonly nodes: readonly LayoutNode[];
-  /** Year marks, which claim their space without being nodes. Empty on a hub map. */
-  readonly marks: readonly YearMark[];
+  /** Year rows, which claim their space without being nodes. Empty on a hub map. */
+  readonly rows: readonly YearRow[];
   /**
    * Films lit by the search and filters, or null when neither is narrowing.
    *
@@ -125,7 +126,6 @@ const PAD = 0.7;
 /** Baseline offsets in em, matching the `dy` the renderer writes. */
 const DY_FILM = 1.1;
 const DY_HUB = -0.9;
-const DX_YEAR = 0.7;
 const DY_YEAR = 0.32;
 
 /** How wide a run of text is, near enough. */
@@ -163,17 +163,22 @@ export function labelBox(node: LayoutNode, scale: number): Box {
 }
 
 /**
- * A year mark's label, which is left-anchored just past its tick.
+ * A year row's label, which is right-anchored in the margin left of the row.
  *
  * Exported for the same reason as `labelBox`: the tests assert that no film is
  * named over the graticule, and they have to ask this module where the graticule's
  * text is rather than keeping a second copy of the answer.
+ *
+ * A margin rather than a mark on the row itself, which is where it sat when the
+ * timeline was a spiral and a year was a tick somewhere inside the map. Ten years
+ * of labels down one edge is a printed chart's axis; ten numbers scattered through
+ * the films is ten more things competing with the titles.
  */
-export function yearLabelBox(mark: YearMark, scale: number): Box {
+export function yearLabelBox(row: YearRow, scale: number): Box {
   const size = FONT_YEAR / scale;
-  const left = mark.x + MARK_TICK + DX_YEAR * size;
-  const text = String(mark.year);
-  return around(left, left + extent(text, size, TRACK_YEAR), mark.y + DY_YEAR * size, size);
+  const right = row.left - YEAR_LABEL_GAP;
+  const width = extent(String(row.year), size, TRACK_YEAR);
+  return around(right - width, right, row.y + DY_YEAR * size, size);
 }
 
 function overlaps(a: Box, b: Box): boolean {
@@ -206,7 +211,7 @@ export function visibleLabels(plan: LabelPlan): ReadonlySet<string> {
   const named = new Set<string>();
   if (plan.scale < LABEL_FLOOR) return named;
 
-  const taken: Box[] = plan.marks.map((mark) => yearLabelBox(mark, plan.scale));
+  const taken: Box[] = plan.rows.map((row) => yearLabelBox(row, plan.scale));
   const films: LayoutNode[] = [];
   for (const node of plan.nodes) {
     if (node.kind === "hub") taken.push(labelBox(node, plan.scale));

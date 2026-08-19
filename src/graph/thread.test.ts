@@ -29,7 +29,14 @@ const seen = (id: string, watchedOn: string | null, rewatch = false): WatchEvent
   rewatch,
 });
 
-/** The chain as a walk from its one end, which is what "a thread" has to mean. */
+/**
+ * The chain as a walk from its one end, which is what "a thread" has to mean.
+ *
+ * Follows `wrap` links as well as `chain` ones. They are one relation — "watched
+ * after" — split into two kinds only because a link across a year boundary is drawn
+ * and simulated differently on a stacked map. Walking the chain alone would report a
+ * three-year diary as three separate threads, which is the opposite of the claim.
+ */
 function walk(graph: Graph): readonly string[] {
   const links = new Map<string, string[]>();
   const join = (from: string, to: string) => {
@@ -39,7 +46,7 @@ function walk(graph: Graph): readonly string[] {
   };
 
   for (const edge of graph.edges) {
-    if (edge.kind !== "chain") continue;
+    if (edge.kind !== "chain" && edge.kind !== "wrap") continue;
     join(edge.source, edge.target);
     join(edge.target, edge.source);
   }
@@ -243,4 +250,143 @@ test("a real library's shape: n-1 edges over the films that have a date", () => 
   assert.equal(walk(graph).length, 114);
   assert.equal(unthreaded(graph).length, 10);
   assert.ok(groupCount(graph) < dated, "no day was shared");
+});
+
+/* --- The calendar the timeline is drawn on -------------------------------- */
+
+test("a film carries the day it was seen, not just its place in the queue", () => {
+  /*
+    `order` and `when` answer different questions and the map needs both: `order` is
+    the reading order the chain runs in, `when` is the place. The spiral this replaced
+    had only `order`, which is why two films a day apart and two films three months
+    apart sat the same distance from each other.
+  */
+  const graph = buildThread(
+    library(
+      [film("a"), film("b"), film("ghost")],
+      [seen("a", "2023-01-01"), seen("b", "2023-07-02"), seen("ghost", null)],
+    ),
+  );
+
+  const of = (id: string) => graph.nodes.find((node) => node.id === id);
+
+  assert.deepEqual(of("film:a")?.when, { year: 2023, through: 0 });
+  assert.equal(of("film:b")?.when?.year, 2023);
+  // The 2nd of July is day 182 of a 365-day year, so just past the halfway mark.
+  assert.equal(of("film:b")?.when?.through, 182 / 365);
+
+  // Undated films have no place on a calendar, and saying so is the point.
+  assert.equal(of("film:ghost")?.when, null);
+});
+
+test("an unreadable date is treated as no date at all, on both fields", () => {
+  /*
+    The invariant `order` and `when` must never break: a film with a step but no
+    position would be threaded into the chain and then drawn out in the undated band,
+    so the map would show an edge running off into nowhere. A malformed date is
+    dropped before it can be numbered — see `calendarPointOf`.
+  */
+  const graph = buildThread(
+    library(
+      [film("a"), film("junk"), film("ancient")],
+      [
+        seen("a", "2023-05-05"),
+        seen("junk", "not a date"),
+        // In range as a number, out of range as a diary: one row per year, so a
+        // year one map would ask the layout for two thousand of them.
+        seen("ancient", "0001-01-01"),
+      ],
+    ),
+  );
+
+  for (const id of ["film:junk", "film:ancient"]) {
+    const node = graph.nodes.find((n) => n.id === id);
+    assert.equal(node?.order, null, `${id} was given a step`);
+    assert.equal(node?.when, null, `${id} was given a position`);
+    assert.equal(node?.degree, 0, `${id} was threaded`);
+  }
+
+  assert.deepEqual(graph.years, [2023]);
+  assert.equal(unthreaded(graph).length, 2);
+});
+
+test("a link across a year boundary is its own kind of edge", () => {
+  /*
+    Not a cosmetic distinction. Rows are stacked, so this one link runs from the
+    right-hand end of a row to the left-hand end of the row below, where every other
+    chain edge spans a few days — the physics and the drawing both need to tell them
+    apart. What must stay true is that the thread is still *one* path through them.
+  */
+  const graph = buildThread(
+    library(
+      [film("a"), film("b"), film("c"), film("d")],
+      [
+        seen("a", "2022-11-01"),
+        seen("b", "2022-12-30"),
+        seen("c", "2023-01-04"),
+        seen("d", "2023-02-01"),
+      ],
+    ),
+  );
+
+  const kinds = graph.edges.map((edge) => edge.kind).sort();
+  assert.deepEqual(kinds, ["chain", "chain", "wrap"]);
+
+  const wrap = graph.edges.find((edge) => edge.kind === "wrap");
+  assert.equal(wrap?.source, "film:b");
+  assert.equal(wrap?.target, "film:c");
+
+  // Still one thread end to end, which is the whole premise of the topology.
+  assert.deepEqual(walk(graph), ["film:a", "film:b", "film:c", "film:d"]);
+});
+
+test("a dormant year gets a row of its own", () => {
+  /*
+    Two adjacent rows labelled 2020 and 2023 would quietly claim the map covers four
+    years of watching when it covers two. The empty rows are the honest drawing: a
+    year with nothing on it is a year nothing was watched in.
+  */
+  const graph = buildThread(
+    library(
+      [film("a"), film("b")],
+      [seen("a", "2020-03-01"), seen("b", "2023-03-01")],
+    ),
+  );
+
+  assert.deepEqual(graph.years, [2020, 2021, 2022, 2023]);
+});
+
+test("a very long dormant stretch is closed rather than drawn out", () => {
+  /*
+    The one place the map is allowed to be less than literal, and it is a trade
+    against legibility rather than a shortcut: the row count is the height of the
+    map, and the height is what the opening zoom is fitted to — so a diary with one
+    film in 1994 and the rest in 2024 would zoom the whole thing down until it carried
+    no titles at all. Past three blank rows the jump is left to the year labels, which
+    state it plainly.
+  */
+  const graph = buildThread(
+    library(
+      [film("old"), film("new")],
+      [seen("old", "1994-03-01"), seen("new", "2024-03-01")],
+    ),
+  );
+
+  assert.deepEqual(graph.years, [1994, 2024]);
+
+  // And the boundary: exactly three blank years is still drawn in full.
+  const filled = buildThread(
+    library(
+      [film("a"), film("b")],
+      [seen("a", "2020-03-01"), seen("b", "2024-03-01")],
+    ),
+  );
+  assert.deepEqual(filled.years, [2020, 2021, 2022, 2023, 2024]);
+});
+
+test("a hub map has no year rows to draw", () => {
+  // Asserted from this side too: `years` is the timeline's, and a hub map that
+  // carried one would have the layout drawing a calendar under a decade cluster.
+  const graph = buildThread(library([]));
+  assert.deepEqual(graph.years, []);
 });

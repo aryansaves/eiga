@@ -30,6 +30,7 @@
  * nothing in this module knows that D3 exists.
  */
 
+import type { CalendarPoint } from "../domain/calendar.ts";
 import {
   decadeLabel,
   decadeOf,
@@ -65,40 +66,40 @@ export interface GraphNode {
    * day it belongs to, counting from the first. Films seen on the same day share
    * a step, which is what makes a binge one knot rather than several. Null means
    * the node sits on no scale — the unplaced hub, or a film with no watch date.
+   *
+   * Reading order, not position: {@link when} is what the timeline is drawn from.
    */
   readonly order: number | null;
+  /**
+   * Where the film falls on the calendar, for the topology that plots one.
+   *
+   * Separate from {@link order} because they answer different questions and only
+   * one of them is a place. `order` says a film was the fortieth distinct day of
+   * viewing; `when` says that day was the 3rd of June 2023. The thread used to
+   * plot `order` directly and it flattened the calendar: two films a day apart
+   * and two films three months apart sat the same distance from each other, so
+   * the map could not show a dormant spring, which is half of what "what has my
+   * watching been like" means.
+   *
+   * Null on every hub node, on a hub map's films, and on any film whose watch
+   * date is missing or unreadable — see `domain/calendar.ts`.
+   */
+  readonly when: CalendarPoint | null;
 }
 
 /**
  * How nodes are joined.
  *
- * `membership`, `session` and `spine` belong to a hub map; `chain` to the diary
- * thread. No graph mixes the two families — see {@link Graph.shape}.
+ * `membership`, `session` and `spine` belong to a hub map; `chain` and `wrap` to
+ * the diary thread. No graph mixes the two families — see {@link Graph.shape}.
  */
-export type GraphEdgeKind = "membership" | "session" | "spine" | "chain";
+export type GraphEdgeKind = "membership" | "session" | "spine" | "chain" | "wrap";
 
 export interface GraphEdge {
   readonly id: string;
   readonly source: string;
   readonly target: string;
   readonly kind: GraphEdgeKind;
-}
-
-/**
- * The first thread step falling in a calendar year — where a year mark goes.
- *
- * The thread's only concession to the renderer, and it earns it: a year mark has
- * to be drawn on the spiral curve, so the calendar and the geometry have to meet
- * somewhere, and the geometry lives in the layout. Given as `step` rather than a
- * position so that meeting still happens on the layout's side.
- *
- * Not derivable from the nodes, which carry a release year and a step but never
- * the date behind the step. And not a property of any one film: a mark belongs to
- * the moment, however many films share it.
- */
-export interface YearStart {
-  readonly year: number;
-  readonly step: number;
 }
 
 export interface Graph {
@@ -117,8 +118,20 @@ export interface Graph {
    * one step of the thread ("day").
    */
   readonly groupKind: string;
-  /** Where each calendar year begins along the thread. Empty on a hub map. */
-  readonly yearStarts: readonly YearStart[];
+  /**
+   * Every calendar year the diary timeline draws a row for, ascending. Empty on
+   * a hub map, which has no chronology to lay out.
+   *
+   * The year *list*, not the years films happen to fall in: a dormant year in the
+   * middle of a viewing life gets a row of its own, because two adjacent rows
+   * labelled 2019 and 2023 would quietly claim the map covers four years of
+   * watching when it covers two. See `buildThread` for the one bound on that.
+   *
+   * Not derivable from the nodes. A film carries the year it was *released* and
+   * the year it was *seen*, and the second only where a date could be read; the
+   * span of the map is a fact about the library, not about any one film.
+   */
+  readonly years: readonly number[];
 }
 
 export interface Hub {
@@ -364,6 +377,8 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
     rating: library.ratings.get(film.id) ?? null,
     degree: degree.get(filmNodeId(film.id)) ?? 0,
     order: null,
+    // A hub map is not a timeline, so no film on it has a place on one.
+    when: null,
   }));
 
   const hubNodes: GraphNode[] = [...hubLabels.entries()].map(([key, label]) => ({
@@ -375,6 +390,7 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
     rating: null,
     degree: degree.get(hubNodeId(key)) ?? 0,
     order: hubOrders.get(key) ?? null,
+    when: null,
   }));
 
   return {
@@ -383,8 +399,8 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
     edges: [...edges.values()].sort((a, b) => a.id.localeCompare(b.id)),
     shape: "hubs",
     groupKind: strategy.kind,
-    // A hub map has no chronology, so nothing to mark years along.
-    yearStarts: [],
+    // A hub map has no chronology, so there are no year rows to draw.
+    years: [],
   };
 }
 

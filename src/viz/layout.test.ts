@@ -10,16 +10,17 @@ import {
   type Library,
   type WatchEvent,
 } from "../domain/types.ts";
-import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs } from "../graph/build.ts";
+import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs, type GraphNode } from "../graph/build.ts";
 import { buildThread, unthreaded } from "../graph/thread.ts";
 import {
   clusterReach,
   createLayout,
+  fitToFrame,
+  FRAME_INSET,
   positionsOf,
   settle,
-  spiralPoint,
-  STEP,
-  TURN_GAP,
+  YEAR_LABEL_GAP,
+  YEAR_WIDTH,
   type LayoutEdge,
   type LayoutNode,
 } from "./layout.ts";
@@ -364,16 +365,17 @@ test("no two dots overlap inside a cluster", () => {
   );
 });
 
-/* --- The diary thread ---------------------------------------------------- */
+/* --- The diary timeline -------------------------------------------------- */
 
 /**
  * A library shaped like the export this was built against: 124 films, 114 of them
  * dated across 102 distinct days, ten with no date at all.
  *
- * Dates are eight days apart so the 102 steps span three calendar years, which is
- * what gives the year marks something to be tested against. Sharing a day every
- * ninth film turns 114 dated films into 102 steps — the twelve knots that make the
- * spiral's crowded case the normal one here rather than a special test.
+ * Dates are eight days apart so the 102 days span three calendar years, which is
+ * what gives the row stack and the year-boundary links something to be tested
+ * against. Sharing a day every ninth film turns 114 dated films into 102 days — the
+ * twelve knots that make the timeline's crowded case the normal one here rather than
+ * a special test.
  */
 function diaryLibrary(): Library {
   const films: Film[] = [];
@@ -402,215 +404,297 @@ function dayString(n: number): string {
   return new Date(Date.UTC(2023, 0, 1) + n * 8 * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** A settled thread, and the ideal curve it was supposed to follow. */
-function thread() {
-  const graph = buildThread(diaryLibrary());
+/** A settled timeline, and the exact place the calendar asked each film to sit. */
+function timeline(library: Library = diaryLibrary()) {
+  const graph = buildThread(library);
   const layout = createLayout(graph, WIDTH, HEIGHT);
   settle(layout.simulation);
 
-  const centre = { x: WIDTH / 2, y: HEIGHT / 2 };
-  const ideal = (step: number) => {
-    const point = spiralPoint(step);
-    return { x: centre.x + point.x, y: centre.y + point.y, r: point.r };
+  const rowFor = new Map(layout.rows.map((row) => [row.year, row]));
+  /**
+   * Where the calendar put a film, before the forces had their say.
+   *
+   * Recomputed from `when` rather than read off `anchorX`, deliberately: `anchorX`
+   * is what the layout decided, and a test that measured a settled map against the
+   * layout's own decision would pass however wrong that decision was. This is the
+   * arithmetic the *map* claims — left edge plus fraction of a year — written out
+   * independently.
+   */
+  const ideal = (node: GraphNode) => {
+    if (node.when === null) return null;
+    const row = rowFor.get(node.when.year);
+    if (row === undefined) return null;
+    return { x: row.left + node.when.through * YEAR_WIDTH, y: row.y };
   };
-  return { graph, layout, centre, ideal };
+
+  return { graph, layout, rowFor, ideal };
 }
 
+/** How many pixels one day of the calendar is worth, for reporting drift. */
+const DAY_PX = YEAR_WIDTH / 365;
+
+test("the rows are the calendar: one per year, oldest at the top, all the same span", () => {
+  const { graph, layout } = timeline();
+
+  assert.deepEqual(
+    layout.rows.map((row) => row.year),
+    [2023, 2024, 2025],
+    "the diary spans three years, so it should carry three rows",
+  );
+  assert.deepEqual(layout.rows.map((row) => row.year), [...graph.years]);
+
+  for (let i = 1; i < layout.rows.length; i += 1) {
+    assert.ok(
+      layout.rows[i].y > layout.rows[i - 1].y,
+      `${layout.rows[i].year} is drawn above ${layout.rows[i - 1].year}`,
+    );
+  }
+
+  /*
+    Every row starts and ends at the same x, and that is the whole reason the years
+    are stacked rather than run end to end: it is what puts February under February
+    in every row. A row scaled to the films it happens to hold would look tidier and
+    would make the columns mean nothing.
+  */
+  for (const row of layout.rows) {
+    assert.equal(row.left, layout.rows[0].left);
+    assert.equal(row.right, layout.rows[0].left + YEAR_WIDTH);
+    assert.equal(row.months.length, 12);
+    assert.equal(row.months[0], row.left, "January starts at the left end of the row");
+  }
+
+  /*
+    And the month ticks line up across rows to within a leap day — which is the
+    honest limit, not a tolerance for sloppiness. 2024 has a 29th of February, so
+    every tick after it sits a day earlier in fractional terms than in 2023. Held
+    to two days' width so a regression to even twelfths, which is out by five, fails.
+  */
+  for (const row of layout.rows) {
+    for (let month = 0; month < 12; month += 1) {
+      const drift = Math.abs(row.months[month] - layout.rows[0].months[month]);
+      assert.ok(
+        drift < 2 * DAY_PX,
+        `month ${month + 1} of ${row.year} is ${(drift / DAY_PX).toFixed(1)} days out of column`,
+      );
+    }
+  }
+});
+
 /*
-  The two geometric properties that make the spiral legible, tested on the pure
-  function rather than on a settled map: if the curve itself is wrong, no amount of
-  force tuning saves the reading, and a failure here should say so plainly instead
-  of surfacing as a layout that looks slightly off.
+  The claim the whole map rests on, and the one the spiral it replaced could not
+  make: a film's horizontal position *is* the day it was watched. Everything else
+  here — the graticule, the row stack, the month ticks — is only meaningful if this
+  holds on a settled map rather than on the anchors.
 */
-test("consecutive days sit an even distance apart along the thread", () => {
-  /*
-    The property that makes the spiral a scale. An Archimedean spiral stepped by
-    *angle* instead would crowd the first year of a diary into the middle and fling
-    the last one around the rim, and the map would be claiming that the user's
-    watching accelerated.
-  */
-  for (let step = 0; step < 200; step += 1) {
-    const a = spiralPoint(step);
-    const b = spiralPoint(step + 1);
-    const chord = Math.hypot(b.x - a.x, b.y - a.y);
-
-    /*
-      Chord rather than arc, because the chord is what the drawn edge between two
-      days actually is. It falls slightly short of `STEP` near the centre where the
-      curve bends hardest, which is the only reason for a tolerance at all.
-    */
-    assert.ok(
-      Math.abs(chord - STEP) < 0.5,
-      `step ${step} is ${chord.toFixed(2)}px from the next, not ${STEP}`,
-    );
-  }
-});
-
-test("each turn of the thread clears the last by a full turn gap", () => {
-  /*
-    The property that keeps two passes of the thread from reading as one thick
-    band. Measured by angle rather than by step, since the turn above a given step
-    generally falls between two steps: `r` is linear in the angle, so interpolating
-    a radius at a matched angle is exact rather than approximate.
-  */
-  const points = Array.from({ length: 240 }, (_, step) => spiralPoint(step));
-
-  let compared = 0;
-  for (const from of points) {
-    const target = from.theta + 2 * Math.PI;
-    const next = points.findIndex((point) => point.theta >= target);
-    if (next <= 0) continue;
-
-    const before = points[next - 1];
-    const after = points[next];
-    const t = (target - before.theta) / (after.theta - before.theta);
-    const radius = before.r + t * (after.r - before.r);
-
-    assert.ok(
-      Math.abs(radius - from.r - TURN_GAP) < 0.01,
-      `a turn out from r=${from.r.toFixed(1)} lands at ${radius.toFixed(1)}, not ${(from.r + TURN_GAP).toFixed(1)}`,
-    );
-    compared += 1;
-  }
-  assert.ok(compared > 50, `only ${compared} turns were actually compared`);
-});
-
-test("the settled thread stays faithful to the curve it was seeded on", () => {
-  /*
-    The forces are allowed to nudge a film off its ideal point — that wander is
-    what keeps the map from reading as a plotted figure — but only so far. Half a
-    turn gap is the limit that matters: past it a film is nearer the neighbouring
-    pass of the thread than its own, and the reader assigns it to the wrong stretch
-    of the diary. Not a fitted number; the bound below it is where it happens to
-    land, recorded so a regression shows up as a jump rather than as a slow drift.
-  */
-  const { graph, layout, ideal } = thread();
+test("a film settles on the day it was watched, not merely near it", () => {
+  const { graph, layout, ideal } = timeline();
   const at = new Map(layout.nodes.map((node) => [node.id, node]));
 
-  let worst = 0;
+  let worst = { off: 0, id: "" };
   let total = 0;
   let counted = 0;
   for (const node of graph.nodes) {
-    if (node.order === null) continue;
+    const target = ideal(node);
+    if (target === null) continue;
     const settled = at.get(node.id);
     assert.ok(settled, `${node.id} was not laid out`);
-    const target = ideal(node.order);
-    const off = Math.hypot(settled.x - target.x, settled.y - target.y);
-    worst = Math.max(worst, off);
+    const off = Math.abs(settled.x - target.x);
+    if (off > worst.off) worst = { off, id: node.id };
     total += off;
     counted += 1;
   }
 
   assert.equal(counted, 114);
+  /*
+    Two days is the bar because a week is the unit the map is read in: a film pushed
+    a week sideways by its neighbours has changed which part of a month it belongs
+    to, and the reader has no way to know. Not a fitted number — the drift lands well
+    inside this — but recorded so that loosening `PLACE_PULL_X`, or letting a
+    many-body force back onto this map, fails here rather than being noticed by eye
+    a year later.
+  */
   assert.ok(
-    worst < TURN_GAP / 2,
-    `a film settled ${worst.toFixed(1)}px from its day, past the ${TURN_GAP / 2}px point where it reads as the turn next door`,
+    worst.off < 2 * DAY_PX,
+    `${worst.id} settled ${(worst.off / DAY_PX).toFixed(1)} days from the date it was watched`,
   );
-  // Loose enough not to be a tuning tripwire, tight enough to catch the spiral
-  // being abandoned altogether.
-  assert.ok(total / counted < 12, `films average ${(total / counted).toFixed(1)}px off the curve`);
+  assert.ok(
+    total / counted < DAY_PX,
+    `films average ${(total / counted / DAY_PX).toFixed(2)} days off their date`,
+  );
 });
 
-test("the thread reads outward, oldest in the middle", () => {
+test("no film settles nearer another year's row than its own", () => {
   /*
-    Tested a turn at a time rather than step by step. At the rim a single day
-    advances the radius by about a pixel, well inside the wander, so consecutive
-    films legitimately swap places — but a whole turn never does, and "later means
-    further out" is the one claim the picture makes about time.
+    The timeline's version of "beside its own hub". Height inside a row is free —
+    it is how a binge opens out into something legible — but only up to the point
+    where a film is nearer the row above or below, at which point the map has
+    quietly moved it to a different year. Measured as the nearest row rather than as
+    a distance, because that is what the reader actually does.
   */
-  const { graph, layout, centre } = thread();
+  const { graph, layout, ideal } = timeline();
   const at = new Map(layout.nodes.map((node) => [node.id, node]));
 
-  const turns = new Map<number, number[]>();
   for (const node of graph.nodes) {
-    if (node.order === null) continue;
+    if (node.when === null) continue;
     const settled = at.get(node.id);
-    if (!settled) continue;
-    const turn = Math.floor(spiralPoint(node.order).theta / (2 * Math.PI));
-    const radii = turns.get(turn) ?? [];
-    radii.push(Math.hypot(settled.x - centre.x, settled.y - centre.y));
-    turns.set(turn, radii);
-  }
+    const target = ideal(node);
+    if (!settled || target === null) continue;
 
-  const mean = [...turns.keys()]
-    .sort((a, b) => a - b)
-    .map((turn) => {
-      const radii = turns.get(turn) ?? [];
-      return radii.reduce((sum, r) => sum + r, 0) / radii.length;
-    });
-
-  assert.ok(mean.length >= 4, `expected several turns, got ${mean.length}`);
-  for (let i = 1; i < mean.length; i += 1) {
-    assert.ok(
-      mean[i] > mean[i - 1],
-      `turn ${i} settled at mean r=${mean[i].toFixed(1)}, inside turn ${i - 1} at ${mean[i - 1].toFixed(1)}`,
+    let nearest = { year: 0, distance: Infinity };
+    for (const row of layout.rows) {
+      const distance = Math.abs(settled.y - row.y);
+      if (distance < nearest.distance) nearest = { year: row.year, distance };
+    }
+    assert.equal(
+      nearest.year,
+      node.when.year,
+      `${node.id} was watched in ${node.when.year} but settled nearest the ${nearest.year} row`,
     );
   }
 });
 
-test("films with no date sit outside the thread, not among it", () => {
+test("films with no date sit below the calendar, not inside it", () => {
   /*
-    They have to be somewhere, and every position inside the spiral means a date.
-    Outside is the only placement that does not assert something false — and it has
-    to be *entirely* outside, since a single undated film among the last turn would
-    read as the most recent thing watched.
+    They have to be somewhere, and every position inside the calendar means a date.
+    Below the last row is the only placement that does not assert something false —
+    and it has to be *entirely* below, since a single undated film level with the
+    final row would read as something watched this year.
   */
-  const { graph, layout, centre } = thread();
+  const { graph, layout } = timeline();
   const at = new Map(layout.nodes.map((node) => [node.id, node]));
-  const radiusOf = (id: string) => {
-    const node = at.get(id);
-    return node ? Math.hypot(node.x - centre.x, node.y - centre.y) : NaN;
-  };
+  const yOf = (id: string) => at.get(id)?.y ?? NaN;
 
-  const undated = unthreaded(graph).map((node) => radiusOf(node.id));
+  const undated = unthreaded(graph).map((node) => yOf(node.id));
   const dated = graph.nodes
-    .filter((node) => node.order !== null)
-    .map((node) => radiusOf(node.id));
+    .filter((node) => node.when !== null)
+    .map((node) => yOf(node.id));
 
   assert.equal(undated.length, 10);
   assert.ok(
     Math.min(...undated) > Math.max(...dated),
-    `an undated film settled at r=${Math.min(...undated).toFixed(0)}, inside the last dated film at r=${Math.max(...dated).toFixed(0)}`,
+    `an undated film settled at y=${Math.min(...undated).toFixed(0)}, level with a dated one at y=${Math.max(...dated).toFixed(0)}`,
   );
 });
 
-test("each calendar year is marked once, on the curve, in order", () => {
-  const { graph, layout, ideal } = thread();
-
-  assert.deepEqual(
-    layout.marks.map((mark) => mark.year),
-    [2023, 2024, 2025],
-    "the diary spans three years, so it should carry three marks",
-  );
-
-  const steps = graph.yearStarts.map((start) => start.step);
-  layout.marks.forEach((mark, index) => {
-    /*
-      Marks sit on the ideal curve rather than on a settled node: they are a
-      graticule, and a graticule that drifted with the terrain would be measuring
-      nothing. Which also means they can be compared exactly.
-    */
-    const target = ideal(steps[index]);
-    assert.equal(mark.x, target.x);
-    assert.equal(mark.y, target.y);
-    if (index > 0) {
-      const previous = ideal(steps[index - 1]);
-      assert.ok(
-        target.r > previous.r,
-        `${mark.year} is marked inside ${layout.marks[index - 1].year}`,
-      );
-    }
-  });
-});
-
-test("a hub map carries no year marks", () => {
-  // Years are the thread's scale. A hub map has no chronology to mark, and a
-  // stray tick over a decade cluster would be measuring the wrong thing.
+test("a hub map carries no year rows", () => {
+  // Rows are the timeline's scale. A hub map has no chronology to lay out, and a
+  // stray rule under a decade cluster would be measuring the wrong thing.
   const layout = createLayout(buildGraph(diaryLibrary(), byDecade), WIDTH, HEIGHT);
-  assert.deepEqual(layout.marks, []);
+  assert.deepEqual(layout.rows, []);
 });
 
-test("the same diary always settles into the same thread", () => {
+test("framing keeps January and December on screen", () => {
+  /*
+    The reason `fitToFrame` takes the rows at all. Films rarely reach either end of
+    a year, so framing the dots alone would leave the graticule running off both
+    edges — and a rule cut off at the edge of the viewport reads as a rendering
+    fault, not as a map. The year labels in the left margin are in the same claim.
+  */
+  const { layout } = timeline();
+  const fit = fitToFrame(layout.nodes, WIDTH, HEIGHT, layout.rows);
+  const onScreen = (x: number) => fit.x + fit.k * x;
+
+  const row = layout.rows[0];
+  assert.ok(onScreen(row.left - YEAR_LABEL_GAP) > 0, "the year labels are off the left edge");
+  assert.ok(onScreen(row.right) < WIDTH, "December runs off the right edge");
+
+  /*
+    And it opens at 1×, which is what `YEAR_WIDTH` was chosen for rather than a
+    happy accident: `labels.ts` prints nothing below 0.5×, so a three-year diary
+    opening at full scale is a map that opens *with titles on it*. The straight
+    single-row ribbon this replaced ran to some 2,600px and opened at 0.49×.
+  */
+  assert.equal(fit.k, 1, "a three-year diary should open at full scale");
+
+  /*
+    That cap is also why the rows' effect on the frame has to be measured somewhere
+    the scale is free to move. Squeezed into a narrow window the rows are what sets
+    the width — if these ever came out equal the rows would be having no effect and
+    the assertions above would be passing by luck.
+  */
+  const narrow = 700;
+  const withRows = fitToFrame(layout.nodes, narrow, HEIGHT, layout.rows);
+  const dotsOnly = fitToFrame(layout.nodes, narrow, HEIGHT);
+  assert.ok(
+    withRows.k < dotsOnly.k,
+    `the rows did not widen the frame (${withRows.k.toFixed(3)} vs ${dotsOnly.k.toFixed(3)} for the dots alone)`,
+  );
+});
+
+test("framing one search match centres it without magnifying it", () => {
+  /*
+    The framing a search does — `GraphView` calls `fitToFrame` over the lit films
+    alone, with no rows, because it is taking the user to the films rather than to
+    the calendar under them.
+
+    One match is the case that has to be pinned. A single film's extent is its own
+    diameter, some 13px, so an uncapped fit into a 1128px frame would be about 87×:
+    one dot the width of the screen, with its title rendered at a tenth of a pixel
+    by the counter-scaling in globals.css. The cap inside `fitToFrame` is what
+    stands between that and a usable map, and nothing else in the search path
+    re-checks it.
+  */
+  const { layout } = timeline();
+  const one = layout.nodes.filter((node) => node.kind === "film").slice(0, 1);
+
+  const fit = fitToFrame(one, WIDTH, HEIGHT);
+  assert.equal(fit.k, 1, "a single match should be framed at 1×, not magnified");
+
+  /*
+    And it should be *centred* in the frame, not merely on screen — the whole point
+    is that the user does not have to hunt for the dot that just lit up. The frame
+    is asymmetric, so the centre it lands on is the middle of the usable box rather
+    than the middle of the viewport.
+  */
+  const usableWidth = WIDTH - FRAME_INSET.left - FRAME_INSET.right;
+  const usableHeight = HEIGHT - FRAME_INSET.top - FRAME_INSET.bottom;
+  assert.ok(
+    Math.abs(fit.x + one[0].x - (FRAME_INSET.left + usableWidth / 2)) < 1,
+    "the match is not horizontally centred",
+  );
+  assert.ok(
+    Math.abs(fit.y + one[0].y - (FRAME_INSET.top + usableHeight / 2)) < 1,
+    "the match is not vertically centred",
+  );
+
+  /*
+    Several matches spread over the calendar are a wider extent than one, so they
+    must not come out framed more tightly. Below 1× this is the only thing keeping
+    the second match on screen, and above it the cap makes both answers 1 — which is
+    why this is `<=` and not `<`.
+  */
+  const many = layout.nodes.filter((node) => node.kind === "film").slice(0, 12);
+  assert.ok(
+    fitToFrame(many, WIDTH, HEIGHT).k <= fit.k,
+    "twelve matches were framed closer than one",
+  );
+});
+
+test("a single-year library still gets a full row", () => {
+  /*
+    The degenerate case, and the one most libraries actually are for their first
+    year. One row is a legitimate map — a year is a scale whether or not there is
+    another to compare it to — so the row must still span the whole calendar rather
+    than shrink to the films on it.
+  */
+  const library = diaryLibrary();
+  const within = {
+    ...library,
+    watches: library.watches.filter((watch) => watch.watchedOn?.startsWith("2023")),
+  };
+
+  const layout = createLayout(buildThread(within), WIDTH, HEIGHT);
+  settle(layout.simulation);
+
+  assert.deepEqual(layout.rows.map((row) => row.year), [2023]);
+  assert.equal(layout.rows[0].right - layout.rows[0].left, YEAR_WIDTH);
+  assert.ok(
+    fitToFrame(layout.nodes, WIDTH, HEIGHT, layout.rows).k <= 1,
+    "a one-row map should not be blown up past 1×",
+  );
+});
+
+test("the same diary always settles into the same timeline", () => {
   const graph = buildThread(diaryLibrary());
 
   const once = createLayout(graph, WIDTH, HEIGHT);
@@ -620,9 +704,10 @@ test("the same diary always settles into the same thread", () => {
 
   /*
     Exact, like the hub-map case, and worth having twice over: d3-force separates
-    two *exactly* coincident nodes with a random nudge, and the thread is the one
+    two *exactly* coincident nodes with a random nudge, and the timeline is the one
     topology that deliberately puts several films on one point. This is the
     assertion that would catch a knot losing its determinism.
   */
   assert.deepEqual(positionsOf(once.nodes), positionsOf(twice.nodes));
+  assert.deepEqual(once.rows, twice.rows);
 });

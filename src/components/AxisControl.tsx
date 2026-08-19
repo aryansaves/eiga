@@ -23,39 +23,55 @@ export interface AxisControlProps {
 }
 
 export function AxisControl({ options, active, onSelect }: AxisControlProps) {
-  // A control with one choice is not a control. Nothing to offer, so nothing drawn.
-  if (options.length < 2) return null;
+  // `axesFor` guarantees at least Decade, so this is a guard, not a case.
+  if (options.length === 0) return null;
+  const sole = options.length === 1 ? options[0] : null;
 
   return (
     <div className="mt-5 flex items-center gap-3">
       <span className="eiga-annotation">Axis</span>
       <span className="bg-rule h-px w-4 shrink-0" aria-hidden="true" />
 
-      <div role="group" aria-label="Group films by" className="flex items-center gap-3">
-        {options.map((axis) => {
-          const selected = axis.id === active;
-          return (
-            <button
-              key={axis.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onSelect(axis.id)}
-              /*
-                The tick under the active axis is a second, non-colour cue — the
-                citron alone would make selection legible only to people who can
-                see it. Both states carry the border so the row never reflows.
-              */
-              className={`eiga-annotation border-b pb-0.5 transition-colors duration-200 ${
-                selected
-                  ? "text-signal border-signal"
-                  : "hover:text-paper-mid border-transparent"
-              }`}
-            >
-              {axis.label}
-            </button>
-          );
-        })}
-      </div>
+      {sole ? (
+        /*
+          One choice is not a control, so it is not offered as one — but it used to
+          answer that by deleting the question, and the map went silent about its
+          own structure. A library imported from `watched.csv` alone has no dates,
+          no ratings and no directors, so Decade is the only axis it can be drawn
+          on: the row vanished and nothing on screen said what the clusters were.
+
+          Stated as text instead. Not a disabled button and not a one-item group —
+          there is nothing to press and nothing to choose between, and offering
+          either would be a control that lies about what it can do.
+        */
+        <p className="eiga-annotation text-paper-mid">{sole.label}</p>
+      ) : (
+        <div role="group" aria-label="Group films by" className="flex items-center gap-3">
+          {options.map((axis) => {
+            const selected = axis.id === active;
+            return (
+              <button
+                key={axis.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onSelect(axis.id)}
+                /*
+                  The tick under the active axis is a second, non-colour cue — the
+                  citron alone would make selection legible only to people who can
+                  see it. Both states carry the border so the row never reflows.
+                */
+                className={`eiga-annotation border-b pb-0.5 transition-colors duration-200 ${
+                  selected
+                    ? "text-signal border-signal"
+                    : "hover:text-paper-mid border-transparent"
+                }`}
+              >
+                {axis.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -59,10 +59,16 @@ export const AXES: readonly Axis[] = [
     id: "diary",
     /*
       Named for what it shows rather than for the mechanism. "Diary" is
-      Letterboxd's word and would ask the user to already know it; "Watch order"
-      says what the line means, which is the only thing they need.
+      Letterboxd's word and would ask the user to already know it; "Watch dates"
+      says what the rows mean, which is the only thing they need.
+
+      It said "Watch order" while the map was a spiral, where a film's place was
+      its position in the queue and nothing more. On a calendar the position *is*
+      the date — two films a week apart sit a week apart — so "order" now
+      understates the axis and, worse, describes the one thing it no longer
+      encodes visually.
     */
-    label: "Watch order",
+    label: "Watch dates",
     /*
       First in the list, so `resolveAxis`'s existing fallback to `options[0]`
       makes it the default with no new defaulting logic anywhere.

@@ -27,6 +27,12 @@
  * An explicit list rather than every computed property: a full dump would inline
  * hundreds of declarations per element, most of them irrelevant, and would bake in
  * layout values that fight the SVG's own geometry.
+ *
+ * The list is the risk, though: anything a stylesheet sets and this omits is simply
+ * absent from the file, and the map still looks right on screen — so the loss shows
+ * up only in the download. `stroke-linejoin` is why that is worth spelling out. Both
+ * halos are drawn as a thick stroke under the glyphs via `paint-order`, and without a
+ * round join a 3px stroke on small type spikes at the corners of the letters.
  */
 const CARRIED_PROPERTIES = [
   "fill",
@@ -35,6 +41,7 @@ const CARRIED_PROPERTIES = [
   "stroke-width",
   "stroke-opacity",
   "stroke-linecap",
+  "stroke-linejoin",
   "stroke-dasharray",
   "opacity",
   "display",

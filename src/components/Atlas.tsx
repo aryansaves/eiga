@@ -76,8 +76,8 @@ export function Atlas() {
   /*
     The one place the two topologies diverge. A thread and a hub map are the same
     `Graph` to everything downstream — same node ids, so a film keeps its identity
-    across a switch and can be watched travelling from the spiral into its decade
-    cluster and back.
+    across a switch and can be watched travelling from its place on the calendar
+    into its decade cluster and back.
   */
   const graph = useMemo(
     () => (active.kind === "thread" ? buildThread(library) : buildGraph(library, active.strategy)),
@@ -205,6 +205,13 @@ export function Atlas() {
           focusedId={focused}
           onFocus={setFocusedId}
           lit={lit}
+          /*
+            The search's own answer, not `lit`. A query names a film, so the view
+            can travel to it; a highlight chip lights a third of the library, which
+            has nowhere to travel. `GraphView.travel` explains why the two are
+            separate props rather than one.
+          */
+          travel={found}
           surfaceRef={surfaceRef}
         />
       </div>
@@ -226,15 +233,22 @@ export function Atlas() {
         <div className="pointer-events-auto flex flex-col items-end gap-4">
           <ImportControl onFiles={load} />
           {/*
-            Quieter than the import: an annotation rather than a mark, because
-            saving is something you do after the map has told you something, not
-            the reason you came. Its label doubles as the only status report.
+            The same hairline box as the import, and no quieter. It was an
+            unadorned line of annotation text on the grounds that saving is
+            something you do after the map has told you something rather than the
+            reason you came — but that reasoning ranked two *acts* by their
+            importance, and the thing a control has to communicate first is that it
+            is a control at all. Hierarchy is carried by order and by the subtitle
+            under the import instead, which is where it costs nothing.
+
+            Its label still doubles as the only status report; the box simply grows
+            to hold it.
           */}
           <button
             type="button"
             onClick={() => void save()}
             disabled={saving === "working"}
-            className="eiga-annotation hover:text-paper-mid focus-visible:outline-signal transition-colors focus-visible:outline-1 focus-visible:outline-offset-4"
+            className="eiga-button"
           >
             {saving === "working"
               ? "Saving…"

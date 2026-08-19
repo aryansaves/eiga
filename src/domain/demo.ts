@@ -53,11 +53,11 @@ const COENS = ["Joel Coen", "Ethan Coen"];
   The catalogue, and with it a diary.
 
   Grouped by director for reading here, but the *dates* run in a different order
-  on purpose: this viewer works through one filmography at a time, so the thread
+  on purpose: this viewer works through one filmography at a time, so the diary
   shows a Tarkovsky run in early 2024, five Wong films in the spring and a
-  Kurosawa autumn. That is what makes switching from Watch order to Director worth
-  watching — the arcs of the spiral are already the clusters, and the films travel
-  from one reading of themselves to the other.
+  Kurosawa autumn. That is what makes switching from Watch dates to Director worth
+  watching — those runs are already visible on the calendar as clumps along a row,
+  and the films travel from one reading of themselves to the other.
 
   Four entries carry no `seen` date. A real export has around ten, and they are the
   one thing on the map that has to be explained rather than discovered.

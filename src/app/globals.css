@@ -100,10 +100,82 @@ body {
   color: var(--color-paper-dim);
 }
 
+/*
+  A control that looks like one.
+
+  Most of EIGA's controls are words on a rule — the axis row, the search field, the
+  highlight chips — and that is right for them: they change what you are *looking
+  at*, so they belong to the caption layer over the map. A button is a different
+  kind of act. It opens a file picker, it writes a file to your disk, it throws away
+  the library you imported. Those needed an edge, and without one they read as
+  captions that happened to be clickable — which is how they were reported.
+
+  A hairline box with square corners, because a hairline box is what the rest of the
+  map is drawn with: the drop target, the row rules, the graticule. No radius, no
+  fill, no pill — any of the three would be the only such shape on screen and would
+  put a UI kit's voice inside an atlas.
+
+  Hover and focus move the border to the accent and the text to full paper. That
+  stays inside the accent's ration: at most one control is hovered or focused at a
+  time, which is the same one-at-a-time rule the anchor node lives by.
+*/
+.eiga-button {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-paper-mid);
+  border: 1px solid var(--color-rule);
+  border-radius: 0;
+  padding: 0.5rem 0.8125rem;
+  cursor: pointer;
+  transition:
+    color 200ms ease,
+    border-color 200ms ease;
+}
+
+/*
+  `:focus-within` alongside `:focus-visible`, for the import control: it is a
+  `<label>` wrapping a visually hidden file input, so focus lands on the input and
+  never on the box the user can see. A plain `<button>` has no focusable descendant,
+  so sharing the rule with it cannot fire spuriously.
+*/
+.eiga-button:hover,
+.eiga-button:focus-visible,
+.eiga-button:focus-within {
+  color: var(--color-paper);
+  border-color: var(--color-signal);
+}
+
 /* Focus visibility must survive the quiet palette. */
 :focus-visible {
   outline: 1px solid var(--color-signal);
   outline-offset: 2px;
+}
+
+/*
+  The ring, restated for that same label case where the focused element is hidden
+  and the global rule has nothing visible to draw around — and pushed a little
+  further out than the global 2px so it reads as a ring around the box rather than
+  as a second border just inside the first. Colour is never the only cue: keyboard
+  focus gets the ring, hover does not.
+*/
+.eiga-button:focus-visible,
+.eiga-button:focus-within {
+  outline: 1px solid var(--color-signal);
+  outline-offset: 3px;
+}
+
+/*
+  A save in flight is not pressable and must not look it. After the hover rule
+  deliberately: some engines still match `:hover` on a disabled control, and at
+  equal specificity the later rule is the one that holds.
+*/
+.eiga-button:disabled {
+  color: var(--color-paper-dim);
+  border-color: var(--color-rule-soft);
+  cursor: default;
 }
 
 /*
@@ -210,12 +282,39 @@ body {
 }
 
 /*
-  Year marks: the thread's graticule.
+  The wrap: December into the following January.
 
-  A tick lying along the radius and an upright year beside it — the two marks a
-  printed chart uses to say where a scale begins, and nothing more. Faint on
-  purpose: this is the one element on the map that is not the user's data, so it
-  must be findable when looked for and invisible when not.
+  One edge per year boundary, and the only curved one on the map. It reaches out
+  past the end of a row, sweeps through the empty band beneath it and comes back in
+  at the left — so it crosses the full width of the map where a chain edge crosses a
+  few days. Drawn much fainter than the chain for exactly that reason: it carries no
+  information the year labels do not already give, and its whole job is to say the
+  thread continues. At chain weight, nine of these would be the loudest thing on a
+  ten-year map.
+
+  `fill: none` because it is the one edge that is a `<path>`, and an unfilled path is
+  not the SVG default.
+*/
+.eiga-edge[data-kind="wrap"] {
+  fill: none;
+  stroke: var(--color-rule);
+  stroke-width: 1;
+  opacity: 0.28;
+}
+
+/*
+  Year rows: the timeline's graticule.
+
+  A rule the width of a calendar year, twelve short ticks at the true start of each
+  month, and the year itself out in the left margin — the marks a printed chart uses
+  to say what its axis is, and nothing more. Faint on purpose: this is the one
+  element on the map that is not the user's data, so it must be findable when looked
+  for and invisible when not.
+
+  The rule is fainter than the ticks rather than the other way round. A rule at tick
+  weight, repeated down a ten-year map, stops reading as an axis and starts reading
+  as ruled paper — and then the films are entries on a form instead of places on a
+  chart.
 
   Named `eiga-year`, not `eiga-mark`: that class is the wordmark's letterspacing
   treatment, and sharing it would mean retuning the wordmark moved the graticule.
@@ -225,12 +324,26 @@ body {
   stroke-width: calc(1px / var(--zoom));
 }
 
+.eiga-year-rule {
+  opacity: 0.45;
+}
+
+.eiga-year-tick {
+  opacity: 0.8;
+}
+
 .eiga-year text {
   fill: var(--color-paper-dim);
   font-family: var(--font-mono);
   font-size: calc(8px / var(--zoom));
   letter-spacing: 0.08em;
-  /* A halo, as on a node label: the tick sits among the films it measures. */
+  /*
+    Right-anchored, so a run of years lines up on its last digit down the margin
+    and sits at a fixed distance from January whatever the label says. `labels.ts`
+    measures the box the same way round — see `yearLabelBox`.
+  */
+  text-anchor: end;
+  /* A halo, as on a node label: the margin is narrow and films drift into it. */
   paint-order: stroke;
   stroke: var(--color-void);
   stroke-width: calc(3px / var(--zoom));

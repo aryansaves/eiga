@@ -4,8 +4,8 @@
  * A hub map answers *what do I have a lot of*. It cannot answer *what has my
  * watching been like*, and the second is the question an enthusiast opens the app
  * for. So the default topology is not a grouping at all: it is the watch history
- * as a single line, first logged film to most recent, each film joined to the one
- * seen before it.
+ * laid out on the calendar, one row per year, each film joined to the one seen
+ * before it.
  *
  * This joins films directly to films, which `build.ts` refuses to do — for a
  * reason that does not apply here. That rule exists against *quadratic* growth:
@@ -13,20 +13,26 @@
  * edges, the sparsest connected graph there is, and 123 edges for a 124-film
  * library is a thread rather than a web.
  *
- * Three decisions worth stating, because each one is a claim about the data:
+ * Four decisions worth stating, because each one is a claim about the data:
  *
  *  1. **One film is one dot, always**, placed at its *earliest* dated viewing.
  *     A rewatch is not a second film, and drawing it twice would double every
  *     title anyone has returned to. When a rewatch happened is a property of the
  *     film, surfaced by the rewatch highlight, not by its position.
- *  2. **A step is a distinct day, not a film.** A real library logged 124 films
- *     across 102 days, so films seen together share a position and resolve into
- *     a knot — a binge looks like one, which is the honest reading. The chain
- *     still runs through them, so the order inside a knot stays traceable.
- *  3. **A film with no watch date joins nothing.** Around ten in a real export
- *     have none. They are still nodes, because dropping films from the map would
- *     be a silent lie about the size of a library, but inventing a position for
- *     them on a timeline would be a louder one.
+ *  2. **A film sits on its true calendar position**, not at its place in a
+ *     queue. This replaces a spiral that spaced films by step index, where two
+ *     films a day apart and two films three months apart sat the same distance
+ *     from each other — so a dormant spring was invisible and a binge looked
+ *     like an ordinary week. Position is now the date; `order` is kept only as
+ *     reading order.
+ *  3. **A step is still a distinct day, not a film.** A real library logged 124
+ *     films across 102 days, so films seen together share a position and resolve
+ *     into a knot — a binge looks like one, which is the honest reading. The
+ *     chain still runs through them, so the order inside a knot stays traceable.
+ *  4. **A film with no readable watch date joins nothing.** Around ten in a real
+ *     export have none. They are still nodes, because dropping films from the map
+ *     would be a silent lie about the size of a library, but inventing a position
+ *     for them on a calendar would be a louder one.
  *
  * Same-day films need no `session` edges here: the chain already runs through
  * them consecutively, and a second edge asserting the same fact is noise.
@@ -35,11 +41,45 @@
  * layout and the renderer treat both topologies as one kind of thing.
  */
 
+import { calendarPointOf } from "../domain/calendar.ts";
 import { watchYearOf, type FilmId, type Library } from "../domain/types.ts";
-import type { Graph, GraphEdge, GraphNode, YearStart } from "./build.ts";
+import type { Graph, GraphEdge, GraphNode } from "./build.ts";
 
 /** What one step of the thread stands for, for the status line and the label. */
 export const THREAD_GROUP_KIND = "day";
+
+/**
+ * How many empty rows a dormant stretch may draw before the gap is simply closed.
+ *
+ * Dormant years get rows of their own — a five-year break in watching is real and
+ * a map that hid it would be claiming continuity it does not have. But the row
+ * count is also the height of the map, and the height is what the opening zoom is
+ * fitted to, so an unbounded span would zoom a small library down until it carried
+ * no titles at all. Past this many blank rows the jump is left to the year labels
+ * to state, which they do plainly: two rows reading 2011 and 2019 are not
+ * mistakable for consecutive years.
+ */
+const MAX_BLANK_ROWS = 3;
+
+/**
+ * Every year the timeline draws, ascending, with short dormant gaps filled in.
+ *
+ * Takes the years films were actually seen in and returns the rows to draw for
+ * them. Separate from the node pass because it is a fact about the library as a
+ * whole, and because the gap rule is the one place the map is allowed to be less
+ * than literal.
+ */
+function yearRows(watched: readonly number[]): readonly number[] {
+  const rows: number[] = [];
+  for (const year of watched) {
+    const previous = rows[rows.length - 1];
+    if (previous !== undefined && year - previous - 1 <= MAX_BLANK_ROWS) {
+      for (let blank = previous + 1; blank < year; blank += 1) rows.push(blank);
+    }
+    rows.push(year);
+  }
+  return rows;
+}
 
 export function buildThread(library: Library): Graph {
   const filmNodeId = (id: FilmId) => `film:${id}`;
@@ -53,6 +93,13 @@ export function buildThread(library: Library): Graph {
   const earliest = new Map<FilmId, string>();
   for (const watch of library.watches) {
     if (watch.watchedOn === null || !known.has(watch.filmId)) continue;
+    /*
+      A date that cannot be read as a calendar day is treated as no date at all,
+      so `order` and `when` can never disagree about whether a film is on the
+      timeline. Letting a malformed date through with a step but no position would
+      thread the chain to a film that is drawn out in the undated band.
+    */
+    if (calendarPointOf(watch.watchedOn) === null) continue;
     const found = earliest.get(watch.filmId);
     // ISO dates compare correctly as strings, which is most of why they are kept
     // as strings all the way through the domain model.
@@ -63,20 +110,17 @@ export function buildThread(library: Library): Graph {
 
   const stepOf = new Map<string, number>();
   /*
-    Years are collected in the same pass that numbers the steps, because "the
-    first step of 2024" is a fact about this ordering and would have to be
-    recovered from the dates all over again anywhere else. A date whose year is
-    unreadable simply starts no year — the mark is decoration on a scale, and one
-    reading "NaN" would be worse than a gap in the ticks.
+    Years are collected in the same pass that numbers the steps, because the span
+    of the map is a fact about this ordering and would have to be recovered from
+    the dates all over again anywhere else.
   */
-  const yearStarts: YearStart[] = [];
+  const watchedYears: number[] = [];
   for (const date of [...new Set(earliest.values())].sort()) {
-    const step = stepOf.size;
-    stepOf.set(date, step);
+    stepOf.set(date, stepOf.size);
 
     const year = watchYearOf(date);
-    if (year !== null && year !== yearStarts[yearStarts.length - 1]?.year) {
-      yearStarts.push({ year, step });
+    if (year !== null && year !== watchedYears[watchedYears.length - 1]) {
+      watchedYears.push(year);
     }
   }
 
@@ -96,9 +140,21 @@ export function buildThread(library: Library): Graph {
   for (let i = 0; i + 1 < threaded.length; i += 1) {
     const source = filmNodeId(threaded[i][0]);
     const target = filmNodeId(threaded[i + 1][0]);
-    const id = `chain:${source}:${target}`;
+    /*
+      A link across a year boundary is its own kind, and not for decoration's
+      sake. Rows are stacked, so this one edge runs from the right-hand end of a
+      row to the left-hand end of the row below — a distance the width of the
+      whole map, where every other chain edge spans a few days. Asked to hold both
+      at the same length the simulation would spend every tick dragging each
+      December back toward the following January, bending the end of every year
+      out of true. The renderer wants the distinction too, but the physics needs
+      it.
+    */
+    const wraps = watchYearOf(threaded[i][1]) !== watchYearOf(threaded[i + 1][1]);
+    const kind = wraps ? "wrap" : "chain";
+    const id = `${kind}:${source}:${target}`;
     if (edges.has(id)) continue;
-    edges.set(id, { id, source, target, kind: "chain" });
+    edges.set(id, { id, source, target, kind });
     degree.set(source, (degree.get(source) ?? 0) + 1);
     degree.set(target, (degree.get(target) ?? 0) + 1);
   }
@@ -115,6 +171,8 @@ export function buildThread(library: Library): Graph {
       rating: library.ratings.get(film.id) ?? null,
       degree: degree.get(id) ?? 0,
       order: watchedOn === undefined ? null : (stepOf.get(watchedOn) ?? null),
+      // Non-null whenever a date survived the pass above, by construction.
+      when: watchedOn === undefined ? null : calendarPointOf(watchedOn),
     };
   });
 
@@ -123,7 +181,7 @@ export function buildThread(library: Library): Graph {
     edges: [...edges.values()].sort((a, b) => a.id.localeCompare(b.id)),
     shape: "thread",
     groupKind: THREAD_GROUP_KIND,
-    yearStarts,
+    years: yearRows(watchedYears),
   };
 }
 

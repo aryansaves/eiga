@@ -64,7 +64,7 @@ function chosen(library: Library, scale: number, lit: ReadonlySet<string> | null
   const layout = createLayout(graph, WIDTH, HEIGHT);
   settle(layout.simulation);
 
-  const named = visibleLabels({ nodes: layout.nodes, marks: layout.marks, lit, scale });
+  const named = visibleLabels({ nodes: layout.nodes, rows: layout.rows, lit, scale });
   return { layout, named };
 }
 
@@ -98,25 +98,25 @@ test("no two titles the map shows overlap, at any zoom", () => {
   }
 });
 
-test("a hub's name and a year mark are never printed over", () => {
+test("a hub's name and a year label are never printed over", () => {
   /*
     Structure is seeded into the occupied list before any film, so this is the
     same invariant as above but across the two kinds of label the map draws
     unconditionally. Checked on both topologies, since a hub map has hub labels
-    and no year marks and the thread has the reverse — and both are in the
-    guarded set, or the thread half of this test would assert nothing.
+    and no year rows and the timeline has the reverse — and both are in the
+    guarded set, or the timeline half of this test would assert nothing.
   */
   for (const graph of [buildThread(crowded()), buildGraph(crowded(), byDecade)]) {
     const layout = createLayout(graph, WIDTH, HEIGHT);
     settle(layout.simulation);
 
     const scale = 1.6;
-    const named = visibleLabels({ nodes: layout.nodes, marks: layout.marks, lit: null, scale });
+    const named = visibleLabels({ nodes: layout.nodes, rows: layout.rows, lit: null, scale });
     const structure = layout.nodes
       .filter((node) => node.kind === "hub")
       .map((node) => ({ what: "a hub label", box: labelBox(node, scale) }));
-    for (const mark of layout.marks) {
-      structure.push({ what: `the ${mark.year} mark`, box: yearLabelBox(mark, scale) });
+    for (const row of layout.rows) {
+      structure.push({ what: `the ${row.year} label`, box: yearLabelBox(row, scale) });
     }
     assert.ok(structure.length > 0, "nothing structural to guard");
 
