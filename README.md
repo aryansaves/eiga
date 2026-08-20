@@ -156,13 +156,15 @@ drive-by.
 
 ```text
 src/
-  app/              Next App Router shell — layout, page, globals.css (design tokens)
+  app/              Next App Router shell — layout, page, globals.css (design tokens),
+                    plus the icon and link-preview files Next picks up by convention
   components/       React UI. All "use client". Atlas.tsx owns every piece of state.
   domain/           Normalized model, statistics, filters, search, calendar, demo library
   graph/            Pure graph construction: axes, hub maps (build.ts), timeline (thread.ts)
   import/           Letterboxd CSV/ZIP reading and validation
   viz/              Layout, label thinning, PNG export
-docs/               Product, architecture, brand, data contract, decisions (ADRs)
+assets/             SVG sources for the generated icon and OG card PNGs
+docs/               Product, architecture, codebase, brand, data contract, decisions (ADRs)
 .claude/            Project rules, specialist agents, and skills, deliberately checked in
 CLAUDE.md           Always-on project context — read this first
 ```
@@ -208,11 +210,54 @@ npm run build   # → out/
 ```
 
 Recommended: Cloudflare Pages, with host analytics turned off. Netlify or GitHub Pages work
-equally well. There is nothing to configure beyond the output directory.
+equally well — but note that a GitHub Pages *project* site serves from
+`aryansaves.github.io/eiga/`, which additionally requires `basePath` and `assetPrefix` in
+`next.config.ts`. Cloudflare Pages and Netlify serve from a root origin and need neither.
 
-Not yet done, and needed before sharing links publicly: a favicon, `metadataBase`, and
-OpenGraph/Twitter tags. `public/` is currently empty, so a shared link previews as a blank
-card.
+### The one value that must be set by hand
+
+`ORIGIN` at the top of [`src/app/layout.tsx`](src/app/layout.tsx) feeds `metadataBase`, and
+it is the only thing here that cannot be derived. A static export writes its HTML once, at
+build time, with no request to learn a host from — so every absolute URL in the metadata is
+frozen at whatever `metadataBase` resolves to. Left unset, Next falls back to
+`http://localhost:3000` and bakes *that* into production, so a shared link asks the reader's
+own machine for the preview image. It fails silently and is invisible locally, because
+localhost resolves fine on the machine that built the file.
+
+Change that one line when the domain changes, and rebuild. To confirm a build is clean:
+
+```bash
+grep -o 'og:image" content="[^"]*"' out/index.html
+```
+
+Note that `npm run dev` shows `localhost:3000` in these tags regardless — the dev server
+resolves them against its own origin. Only the exported build reflects `ORIGIN`.
+
+### Icons and link previews
+
+| file                          | emits                                        |
+| ----------------------------- | -------------------------------------------- |
+| `src/app/icon.svg`            | the favicon                                  |
+| `src/app/apple-icon.png`      | the iOS home-screen icon, 180×180            |
+| `src/app/opengraph-image.png` | `og:image`, 1200×630, with width/height/type |
+| `src/app/twitter-image.png`   | `twitter:image` (X would otherwise fall back to `og:image`) |
+
+These are Next file conventions — no `<meta>` tags are hand-written, and no `icons` entry is
+needed in the metadata export. The PNGs are generated from SVG sources in `assets/`, kept so
+the artwork stays editable rather than becoming an unmaintainable binary:
+
+```bash
+rsvg-convert -w 1200 -h 630 assets/opengraph-image.svg -o src/app/opengraph-image.png
+cp src/app/opengraph-image.png src/app/twitter-image.png
+rsvg-convert -w 180 -h 180 assets/apple-icon.svg -o src/app/apple-icon.png
+```
+
+The preview card is **authored, and identical for everyone**. The obvious alternative — a card
+showing the visitor's own map — would need a server that receives their library and renders
+an image, which breaks local-only processing and would leave a cached copy of a viewing
+history on a CDN nobody controls. So the card is drawn with the app's real grammar instead:
+hubs outlined in `paper-dim`, films at `paper-mid`, five-star films at `signal-muted`, one
+anchor at full `signal` with its edge lit in `signal-deep`.
 
 ## Docs
 
@@ -233,5 +278,5 @@ Early-stage. The import → normalize → graph → explore → inspect slice wo
 against real exports; 136 tests pass; the production build is clean.
 
 Known gaps: the chrome is cramped below roughly 520px and has no designed phone layout;
-long watch histories (twenty-plus years) produce a timeline taller than the initial frame;
-shareable links are not built yet.
+long watch histories (twenty-plus years) produce a timeline taller than the initial frame.
+Shareable links are deliberately deferred to v2, after deployment.

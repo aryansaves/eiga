@@ -1,0 +1,175 @@
+<!--
+  Source for src/app/opengraph-image.png and src/app/twitter-image.png.
+
+  Kept as SVG so the card can be regenerated instead of becoming an
+  unmaintainable binary. Rebuild with:
+
+    rsvg-convert -w 1200 -h 630 assets/opengraph-image.svg -o src/app/opengraph-image.png
+    cp src/app/opengraph-image.png src/app/twitter-image.png
+
+  Authored rather than screenshotted, and that is deliberate. The obvious version
+  of this card is a picture of the visitor's own map — which would require a
+  server that receives their library and renders an image, breaking local-only
+  processing and leaving a cached copy of a viewing history on a CDN nobody
+  controls. So it is one image, identical for everyone, drawn with the app's real
+  grammar: hubs filled with ink and outlined in paper-dim, films at paper-mid,
+  five-star films at signal-muted, exactly one anchor at full signal with its
+  edges lit in signal-deep.
+
+  Colours and type are the tokens from src/app/globals.css. Text is written
+  pre-uppercased because librsvg does not apply text-transform, and the two
+  Liberation families are named explicitly because rasterizing has no browser
+  font stack to fall back through — both are in the app's own stacks.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <!-- The graticule: the rule-soft token on a 64px pitch, as .eiga-grid draws it. -->
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0 L0 0 L0 64" fill="none" stroke="#1a1d21" stroke-width="1" />
+    </pattern>
+
+    <!--
+      The landing's wash: void at full strength on the left, transparent on the
+      right. Prose sits on near-solid graphite; the grid stays visible under the
+      map, where there is nothing to read.
+    -->
+    <linearGradient id="wash" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#101114" stop-opacity="1" />
+      <stop offset="46%" stop-color="#101114" stop-opacity="0.88" />
+      <stop offset="100%" stop-color="#101114" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#101114" />
+  <rect width="1200" height="630" fill="url(#grid)" />
+  <rect width="1200" height="630" fill="url(#wash)" />
+
+  <!-- The map fragment: a decade axis, three hubs chained by spine edges. -->
+  <g stroke="#26292e" fill="none">
+    <!-- Spine: ordinal hubs chained low-to-high, so the scale is structure. -->
+    <g stroke-width="1.25">
+      <path d="M770 165 L925 315" />
+      <path d="M925 315 L1055 470" />
+    </g>
+
+    <!-- Membership edges sit back at 0.55, as .eiga-edge[data-kind="membership"] does. -->
+    <g stroke-width="1" opacity="0.55">
+      <path d="M770 165 L699 139" />
+      <path d="M770 165 L744 94" />
+      <path d="M770 165 L807 100" />
+      <path d="M770 165 L840 139" />
+      <path d="M770 165 L835 202" />
+      <path d="M770 165 L770 240" />
+      <path d="M770 165 L705 202" />
+
+      <path d="M925 315 L852 288" />
+      <path d="M925 315 L898 242" />
+      <path d="M925 315 L998 342" />
+      <path d="M925 315 L945 390" />
+      <path d="M925 315 L875 375" />
+
+      <path d="M1055 470 L981 470" />
+      <path d="M1055 470 L1003 418" />
+      <path d="M1055 470 L1092 406" />
+      <path d="M1055 470 L1128 457" />
+      <path d="M1055 470 L1092 534" />
+      <path d="M1055 470 L1030 540" />
+    </g>
+  </g>
+
+  <!-- The lit edge: one focus, so one edge in signal-deep. -->
+  <path d="M925 315 L985 265" stroke="#5f7a22" stroke-width="1.4" fill="none" />
+
+  <!-- Hubs: structure, not subject. An outline and a small archival label. -->
+  <g fill="#15171a" stroke="#6b6f73" stroke-width="1">
+    <circle cx="770" cy="165" r="26" />
+    <circle cx="925" cy="315" r="26" />
+    <circle cx="1055" cy="470" r="26" />
+  </g>
+  <!--
+    Hub labels carry their own tracking: .eiga-hub .eiga-label is 0.22em and
+    uppercase, which is wider than the 0.14em the annotation style uses.
+  -->
+  <g
+    fill="#6b6f73"
+    font-family="Liberation Mono, monospace"
+    font-size="13"
+    letter-spacing="2.86"
+    text-anchor="middle"
+  >
+    <text x="770" y="212">1990S</text>
+    <text x="925" y="362">2000S</text>
+    <text x="1055" y="517">2010S</text>
+  </g>
+
+  <!-- Films at paper-mid. -->
+  <g fill="#a2a6a8">
+    <circle cx="699" cy="139" r="6" />
+    <circle cx="807" cy="100" r="6" />
+    <circle cx="840" cy="139" r="6" />
+    <circle cx="835" cy="202" r="6" />
+    <circle cx="770" cy="240" r="6" />
+    <circle cx="705" cy="202" r="6" />
+    <circle cx="852" cy="288" r="6" />
+    <circle cx="898" cy="242" r="6" />
+    <circle cx="945" cy="390" r="6" />
+    <circle cx="875" cy="375" r="6" />
+    <circle cx="981" cy="470" r="6" />
+    <circle cx="1003" cy="418" r="6" />
+    <circle cx="1128" cy="457" r="6" />
+    <circle cx="1092" cy="534" r="6" />
+    <circle cx="1030" cy="540" r="6" />
+  </g>
+
+  <!-- Five-star films: signal-muted, sparse but not singular. -->
+  <g fill="#a9cc42">
+    <circle cx="744" cy="94" r="6" />
+    <circle cx="998" cy="342" r="6" />
+    <circle cx="1092" cy="406" r="6" />
+  </g>
+
+  <!-- The anchor: one node at full signal, with its focus ring. -->
+  <circle cx="985" cy="265" r="15" fill="none" stroke="#c8f24e" stroke-width="1" opacity="0.45" />
+  <circle cx="985" cy="265" r="8" fill="#c8f24e" />
+
+  <!-- The wordmark: .eiga-mark is sans, uppercase, tracked at 0.42em. -->
+  <text
+    x="80"
+    y="188"
+    fill="#e9e7e2"
+    font-family="Liberation Sans, sans-serif"
+    font-size="46"
+    letter-spacing="19.3"
+  >
+    EIGA
+  </text>
+
+  <!-- .eiga-annotation: mono, uppercase, 0.14em, paper-dim. -->
+  <text
+    x="80"
+    y="232"
+    fill="#6b6f73"
+    font-family="Liberation Mono, monospace"
+    font-size="18"
+    letter-spacing="2.52"
+  >
+    YOUR CINEMA, MAPPED.
+  </text>
+
+  <!-- The promise, in the body face, as the landing sets it. -->
+  <g fill="#e9e7e2" font-family="Liberation Serif, serif" font-size="39">
+    <text x="80" y="332">Every film you have seen,</text>
+    <text x="80" y="382">placed on the day you saw it.</text>
+  </g>
+
+  <text
+    x="80"
+    y="466"
+    fill="#6b6f73"
+    font-family="Liberation Mono, monospace"
+    font-size="16"
+    letter-spacing="2.24"
+  >
+    NOTHING IS UPLOADED · NO ACCOUNT
+  </text>
+</svg>
