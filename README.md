@@ -15,6 +15,7 @@ time:
 | axis            | shape                                                                    |
 | --------------- | ------------------------------------------------------------------------ |
 | **Watch dates** | a calendar timeline — every film on the day you saw it, one row per year  |
+| **Discovery**   | a tree rooted at your first logged film — each film hangs from the nearest earlier one in release year, one row per release decade |
 | **Decade**      | films clustered by release decade, decades chained low-to-high           |
 | **Rating**      | films clustered by the score you gave them                               |
 | **Watch year**  | films clustered by the year you watched them                             |

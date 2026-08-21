@@ -303,6 +303,22 @@ body {
 }
 
 /*
+  A branch: one film hanging from the earlier film it grew out of.
+
+  Weighted like the chain, because it plays the same part — on the tree it is the
+  entire structure and no other edge kind exists. Where it differs is direction: a
+  chain runs along a row, so it reads as a line even at low contrast, while a branch
+  crosses between rows and its slope is the information. Hence slightly more presence
+  than the chain: opacity is what carries a diagonal, and a limb reaching four decades
+  back is the one thing on this map worth following with the eye.
+*/
+.eiga-edge[data-kind="branch"] {
+  stroke: var(--color-rule);
+  stroke-width: 1.1;
+  opacity: 0.72;
+}
+
+/*
   Year rows: the timeline's graticule.
 
   A rule the width of a calendar year, twelve short ticks at the true start of each

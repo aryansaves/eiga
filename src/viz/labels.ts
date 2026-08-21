@@ -34,7 +34,7 @@
  * is this returning empty.
  */
 
-import { YEAR_LABEL_GAP, type LayoutNode, type YearRow } from "./layout.ts";
+import { YEAR_LABEL_GAP, type LayoutNode, type MapRow } from "./layout.ts";
 
 /** A label's footprint, in map coordinates. */
 export interface Box {
@@ -48,14 +48,14 @@ export interface Box {
  * Everything the choice depends on.
  *
  * An object rather than the two positional arguments this started as, because the
- * answer is not a function of the nodes alone: year marks occupy space without
+ * answer is not a function of the nodes alone: graticule marks occupy space without
  * being nodes, and which films the user is currently looking for changes the
  * order names are handed out in.
  */
 export interface LabelPlan {
   readonly nodes: readonly LayoutNode[];
-  /** Year rows, which claim their space without being nodes. Empty on a hub map. */
-  readonly rows: readonly YearRow[];
+  /** Graticule rows, which claim their space without being nodes. Empty on a hub map. */
+  readonly rows: readonly MapRow[];
   /**
    * Films lit by the search and filters, or null when neither is narrowing.
    *
@@ -163,7 +163,7 @@ export function labelBox(node: LayoutNode, scale: number): Box {
 }
 
 /**
- * A year row's label, which is right-anchored in the margin left of the row.
+ * A graticule row's label, which is right-anchored in the margin left of the row.
  *
  * Exported for the same reason as `labelBox`: the tests assert that no film is
  * named over the graticule, and they have to ask this module where the graticule's
@@ -174,10 +174,10 @@ export function labelBox(node: LayoutNode, scale: number): Box {
  * of labels down one edge is a printed chart's axis; ten numbers scattered through
  * the films is ten more things competing with the titles.
  */
-export function yearLabelBox(row: YearRow, scale: number): Box {
+export function rowLabelBox(row: MapRow, scale: number): Box {
   const size = FONT_YEAR / scale;
   const right = row.left - YEAR_LABEL_GAP;
-  const width = extent(String(row.year), size, TRACK_YEAR);
+  const width = extent(row.label, size, TRACK_YEAR);
   return around(right - width, right, row.y + DY_YEAR * size, size);
 }
 
@@ -188,14 +188,14 @@ function overlaps(a: Box, b: Box): boolean {
 /**
  * The films whose titles the map can show at this zoom, by node id.
  *
- * Hubs and year marks are not in the answer because they are never in question:
- * they are drawn unconditionally and only *claim* space here. Structure outranks
- * subject — a cluster or a year with no name leaves the reader without an answer
- * to "what am I looking at", which is a worse map than one where a film is a dot
- * you have to hover.
+ * Hubs and graticule marks are not in the answer because they are never in
+ * question: they are drawn unconditionally and only *claim* space here. Structure
+ * outranks subject — a cluster or a row with no name leaves the reader without an
+ * answer to "what am I looking at", which is a worse map than one where a film is a
+ * dot you have to hover.
  *
  * That ranking has a consequence worth stating rather than discovering: a film the
- * user has just searched for, whose title would land on a year mark, is lit and
+ * user has just searched for, whose title would land on a row mark, is lit and
  * framed but not named. It is readable by hovering it or from the inspector, and
  * the alternative is printing two pieces of text over each other — which is the
  * bug this module exists to fix, so it stays absolute.
@@ -211,7 +211,7 @@ export function visibleLabels(plan: LabelPlan): ReadonlySet<string> {
   const named = new Set<string>();
   if (plan.scale < LABEL_FLOOR) return named;
 
-  const taken: Box[] = plan.rows.map((row) => yearLabelBox(row, plan.scale));
+  const taken: Box[] = plan.rows.map((row) => rowLabelBox(row, plan.scale));
   const films: LayoutNode[] = [];
   for (const node of plan.nodes) {
     if (node.kind === "hub") taken.push(labelBox(node, plan.scale));

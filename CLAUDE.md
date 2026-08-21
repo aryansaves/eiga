@@ -85,9 +85,19 @@ Avoid:
 
 ### Topology
 
-Films connect to attribute hubs, never to each other. Ten films by one director are
-ten edges to one node, not forty-five edges between films — the bipartite shape is
-what keeps a large library legible.
+The constraint is **quadratic growth**, not film-to-film links as such. Ten films by one
+director must never become forty-five edges between films — that is the unreadable
+spiderweb, and it is what routing attribute membership through hubs prevents: ten edges
+to one node instead.
+
+So films may be joined to each other by a relation whose edge count is **linear in the
+number of films**, and only by such a relation. Two exist:
+
+- the **diary thread** chains films in watch order — n−1 edges
+- the **discovery tree** hangs each film from the nearest earlier film in release year —
+  also n−1 edges, the sparsest connected graph there is
+
+Attribute membership is not linear and stays bipartite. See ADR-009.
 
 Hubs come from exactly one **axis** at a time, and axes are mutually exclusive rather
 than layered. Rating is a valid axis on those terms: `4½` is a hub like `1990s` is,

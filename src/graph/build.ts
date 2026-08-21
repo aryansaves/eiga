@@ -12,8 +12,9 @@
  * objects; hubs are few and quiet.
  *
  * The constraint is quadratic growth, not film-to-film links as such — see
- * `src/graph/thread.ts`, where the diary chain joins films directly at a cost of
- * n−1 edges, the sparsest connected graph that exists.
+ * `src/graph/thread.ts` and `src/graph/tree.ts`, where the diary chain and the
+ * discovery tree each join films directly at a cost of n−1 edges, the sparsest
+ * connected graph that exists.
  *
  * A film may only ever hold hubs from *one* axis at a time. Axes are mutually
  * exclusive, not layered. Grouping by decade *and* rating simultaneously would
@@ -67,6 +68,10 @@ export interface GraphNode {
    * a step, which is what makes a binge one knot rather than several. Null means
    * the node sits on no scale — the unplaced hub, or a film with no watch date.
    *
+   * On the discovery tree it is *depth*: how many films stand between this one
+   * and the root. Null there means the same thing it means on the thread — a film
+   * with no readable watch date, which the tree could not hang anywhere.
+   *
    * Reading order, not position: {@link when} is what the timeline is drawn from.
    */
   readonly order: number | null;
@@ -91,9 +96,16 @@ export interface GraphNode {
  * How nodes are joined.
  *
  * `membership`, `session` and `spine` belong to a hub map; `chain` and `wrap` to
- * the diary thread. No graph mixes the two families — see {@link Graph.shape}.
+ * the diary thread; `branch` to the discovery tree, where it runs from a film to
+ * one watched later. No graph mixes the families — see {@link Graph.shape}.
  */
-export type GraphEdgeKind = "membership" | "session" | "spine" | "chain" | "wrap";
+export type GraphEdgeKind =
+  | "membership"
+  | "session"
+  | "spine"
+  | "chain"
+  | "wrap"
+  | "branch";
 
 export interface GraphEdge {
   readonly id: string;
@@ -110,28 +122,40 @@ export interface Graph {
    *
    * Carried explicitly rather than inferred from whether hubs happen to exist,
    * because the layout, the status line and the accessible label all have to
-   * branch on it, and "no hub nodes" would also describe an empty library.
+   * branch on it, and "no hub nodes" would also describe an empty library — or
+   * either of the two film-to-film shapes.
    */
-  readonly shape: "hubs" | "thread";
+  readonly shape: "hubs" | "thread" | "tree";
   /**
-   * What one grouping stands for: a hub on a hub map ("decade", "director"), or
-   * one step of the thread ("day").
+   * What one grouping stands for: a hub on a hub map ("decade", "director"), one
+   * step of the thread ("day"), or one fork of the tree ("branch point").
    */
   readonly groupKind: string;
   /**
-   * Every calendar year the diary timeline draws a row for, ascending. Empty on
-   * a hub map, which has no chronology to lay out.
+   * The keys of the rows this map draws a graticule for, ascending. Empty on a
+   * hub map, which has no scale to lay out.
    *
-   * The year *list*, not the years films happen to fall in: a dormant year in the
+   * Two topologies fill this and they mean different things by it, which is why
+   * the field is named for the drawing rather than for the data: on the diary
+   * timeline a row is a *calendar year* and the horizontal axis is the year; on
+   * the discovery tree a row is a *release decade* and the horizontal axis is the
+   * whole watch history. Either way it is an ordered list of labelled horizontal
+   * rules that films are read against, and `viz/layout.ts` turns one into the
+   * other with the same arithmetic.
+   *
+   * The row *list*, not the rows films happen to fall in: a dormant year in the
    * middle of a viewing life gets a row of its own, because two adjacent rows
    * labelled 2019 and 2023 would quietly claim the map covers four years of
-   * watching when it covers two. See `buildThread` for the one bound on that.
+   * watching when it covers two. Same for a decade nothing was released in. See
+   * `buildThread` for the one bound on that.
    *
-   * Not derivable from the nodes. A film carries the year it was *released* and
-   * the year it was *seen*, and the second only where a date could be read; the
-   * span of the map is a fact about the library, not about any one film.
+   * Stated here rather than derived downstream because the renderer needs it at
+   * render time, before any coordinate exists — and because on the timeline it is
+   * genuinely not derivable: a film carries the year it was *released* and the
+   * year it was *seen*, and the span of the map is a fact about the library, not
+   * about any one film.
    */
-  readonly years: readonly number[];
+  readonly rows: readonly number[];
 }
 
 export interface Hub {
@@ -399,21 +423,37 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
     edges: [...edges.values()].sort((a, b) => a.id.localeCompare(b.id)),
     shape: "hubs",
     groupKind: strategy.kind,
-    // A hub map has no chronology, so there are no year rows to draw.
-    years: [],
+    // A hub map has no scale to read along, so there are no rows to draw.
+    rows: [],
   };
 }
 
 /**
  * How many groups the map is drawn in: hubs on a hub map, distinct steps on a
- * thread.
+ * thread, forks on a tree.
  *
  * One function rather than the arithmetic inlined at each call site, because the
  * status line and the accessible label must never disagree about it.
+ *
+ * A tree counts *branch points* — films more than one other film hangs from —
+ * rather than films or edges, because those two are already the film count and
+ * the film count minus one, and neither says anything the status line does not
+ * say twice. How often the history forks is the one number that describes the
+ * shape: a tree with no branch points is a chain, and a great many of them is a
+ * viewing life that keeps starting somewhere new.
  */
 export function groupCount(graph: Graph): number {
   if (graph.shape === "hubs") {
     return graph.nodes.filter((node) => node.kind === "hub").length;
+  }
+  if (graph.shape === "tree") {
+    const children = new Map<string, number>();
+    for (const edge of graph.edges) {
+      children.set(edge.source, (children.get(edge.source) ?? 0) + 1);
+    }
+    let forks = 0;
+    for (const count of children.values()) if (count > 1) forks += 1;
+    return forks;
   }
   const steps = new Set<number>();
   for (const node of graph.nodes) {

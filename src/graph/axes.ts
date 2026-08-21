@@ -5,11 +5,11 @@
  * holds an id rather than a function and the set can grow without a component
  * learning about it.
  *
- * Two topologies live in one list, which is the point of the union: the diary
- * thread is not a grouping at all, but from the user's side it is the same kind of
- * choice as a grouping — *how do I want to see this* — and splitting it into a
- * separate control would make the most important view of the product look like a
- * mode switch. The map branches on `kind` exactly once.
+ * Three topologies live in one list, which is the point of the union: the diary
+ * thread and the discovery tree are not groupings at all, but from the user's side
+ * they are the same kind of choice as a grouping — *how do I want to see this* —
+ * and splitting them into a separate control would make the most important views
+ * of the product look like a mode switch. The map branches on `kind` exactly once.
  *
  * `available` exists because no view is universally meaningful. A Letterboxd
  * export carries no director credits, so offering a Director control on a real
@@ -27,6 +27,7 @@ import {
   byWatchYear,
   type HubStrategy,
 } from "./build.ts";
+import { placeableFilms } from "./tree.ts";
 
 export type { AxisId };
 
@@ -44,6 +45,12 @@ export interface ThreadAxis extends AxisBase {
   readonly id: "diary";
 }
 
+/** The discovery tree: the same history, branched by how far each film reached. */
+export interface TreeAxis extends AxisBase {
+  readonly kind: "tree";
+  readonly id: "discovery";
+}
+
 /** An attribute grouping: films joined to hubs, which the user re-sorts into. */
 export interface HubAxis extends AxisBase {
   readonly kind: "hubs";
@@ -51,7 +58,7 @@ export interface HubAxis extends AxisBase {
   readonly strategy: HubStrategy;
 }
 
-export type Axis = ThreadAxis | HubAxis;
+export type Axis = ThreadAxis | TreeAxis | HubAxis;
 
 export const AXES: readonly Axis[] = [
   {
@@ -78,6 +85,25 @@ export const AXES: readonly Axis[] = [
       an empty centre — so such a library correctly falls through to Decade.
     */
     available: (library) => library.watches.some((watch) => watch.watchedOn !== null),
+  },
+  {
+    kind: "tree",
+    id: "discovery",
+    /*
+      Named for what the branching means rather than for the shape. "Tree" describes
+      the drawing, which the user can already see; "Discovery" names the claim — each
+      limb is a reach into a part of film history, and a fork is the moment one began.
+    */
+    label: "Discovery",
+    /*
+      Second, so Watch dates stays `options[0]` and therefore stays the default.
+
+      Withheld below two placeable films: one is a root with nothing hanging off it,
+      and two is the smallest library that can fork at all. Below that the tree is
+      the diary thread drawn again under another name, which is the same reason
+      Director is withheld from an import that cannot fill it.
+    */
+    available: (library) => placeableFilms(library) >= 2,
   },
   {
     kind: "hubs",

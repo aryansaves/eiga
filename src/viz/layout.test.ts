@@ -11,14 +11,18 @@ import {
   type WatchEvent,
 } from "../domain/types.ts";
 import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs, type GraphNode } from "../graph/build.ts";
-import { buildThread, unthreaded } from "../graph/thread.ts";
+import { buildThread, unplaced } from "../graph/thread.ts";
+import { buildTree } from "../graph/tree.ts";
 import {
   clusterReach,
   createLayout,
   fitToFrame,
   FRAME_INSET,
   positionsOf,
+  ROW_GAP,
   settle,
+  TREE_MAX_SPAN,
+  TREE_MIN_SPAN,
   YEAR_LABEL_GAP,
   YEAR_WIDTH,
   type LayoutEdge,
@@ -410,7 +414,7 @@ function timeline(library: Library = diaryLibrary()) {
   const layout = createLayout(graph, WIDTH, HEIGHT);
   settle(layout.simulation);
 
-  const rowFor = new Map(layout.rows.map((row) => [row.year, row]));
+  const rowFor = new Map(layout.rows.map((row) => [row.key, row]));
   /**
    * Where the calendar put a film, before the forces had their say.
    *
@@ -437,16 +441,16 @@ test("the rows are the calendar: one per year, oldest at the top, all the same s
   const { graph, layout } = timeline();
 
   assert.deepEqual(
-    layout.rows.map((row) => row.year),
+    layout.rows.map((row) => row.key),
     [2023, 2024, 2025],
     "the diary spans three years, so it should carry three rows",
   );
-  assert.deepEqual(layout.rows.map((row) => row.year), [...graph.years]);
+  assert.deepEqual(layout.rows.map((row) => row.key), [...graph.rows]);
 
   for (let i = 1; i < layout.rows.length; i += 1) {
     assert.ok(
       layout.rows[i].y > layout.rows[i - 1].y,
-      `${layout.rows[i].year} is drawn above ${layout.rows[i - 1].year}`,
+      `${layout.rows[i].key} is drawn above ${layout.rows[i - 1].key}`,
     );
   }
 
@@ -459,8 +463,8 @@ test("the rows are the calendar: one per year, oldest at the top, all the same s
   for (const row of layout.rows) {
     assert.equal(row.left, layout.rows[0].left);
     assert.equal(row.right, layout.rows[0].left + YEAR_WIDTH);
-    assert.equal(row.months.length, 12);
-    assert.equal(row.months[0], row.left, "January starts at the left end of the row");
+    assert.equal(row.ticks.length, 12);
+    assert.equal(row.ticks[0], row.left, "January starts at the left end of the row");
   }
 
   /*
@@ -471,10 +475,10 @@ test("the rows are the calendar: one per year, oldest at the top, all the same s
   */
   for (const row of layout.rows) {
     for (let month = 0; month < 12; month += 1) {
-      const drift = Math.abs(row.months[month] - layout.rows[0].months[month]);
+      const drift = Math.abs(row.ticks[month] - layout.rows[0].ticks[month]);
       assert.ok(
         drift < 2 * DAY_PX,
-        `month ${month + 1} of ${row.year} is ${(drift / DAY_PX).toFixed(1)} days out of column`,
+        `month ${month + 1} of ${row.key} is ${(drift / DAY_PX).toFixed(1)} days out of column`,
       );
     }
   }
@@ -543,7 +547,7 @@ test("no film settles nearer another year's row than its own", () => {
     let nearest = { year: 0, distance: Infinity };
     for (const row of layout.rows) {
       const distance = Math.abs(settled.y - row.y);
-      if (distance < nearest.distance) nearest = { year: row.year, distance };
+      if (distance < nearest.distance) nearest = { year: row.key, distance };
     }
     assert.equal(
       nearest.year,
@@ -564,7 +568,7 @@ test("films with no date sit below the calendar, not inside it", () => {
   const at = new Map(layout.nodes.map((node) => [node.id, node]));
   const yOf = (id: string) => at.get(id)?.y ?? NaN;
 
-  const undated = unthreaded(graph).map((node) => yOf(node.id));
+  const undated = unplaced(graph).map((node) => yOf(node.id));
   const dated = graph.nodes
     .filter((node) => node.when !== null)
     .map((node) => yOf(node.id));
@@ -686,7 +690,7 @@ test("a single-year library still gets a full row", () => {
   const layout = createLayout(buildThread(within), WIDTH, HEIGHT);
   settle(layout.simulation);
 
-  assert.deepEqual(layout.rows.map((row) => row.year), [2023]);
+  assert.deepEqual(layout.rows.map((row) => row.key), [2023]);
   assert.equal(layout.rows[0].right - layout.rows[0].left, YEAR_WIDTH);
   assert.ok(
     fitToFrame(layout.nodes, WIDTH, HEIGHT, layout.rows).k <= 1,
@@ -710,4 +714,291 @@ test("the same diary always settles into the same timeline", () => {
   */
   assert.deepEqual(positionsOf(once.nodes), positionsOf(twice.nodes));
   assert.deepEqual(once.rows, twice.rows);
+});
+
+/* --- The discovery tree --------------------------------------------------- */
+
+/**
+ * A tree-shaped library: films from six decades of cinema, watched over two years.
+ *
+ * Release years deliberately do not follow watch order — that is the whole point of
+ * the axis, and a library where they agreed would make the tree indistinguishable
+ * from the thread. Ten films carry no date, so the parked band is tested here for
+ * the same reason it is on the timeline.
+ */
+function treeLibrary(): Library {
+  const films: Film[] = [];
+  const watches: WatchEvent[] = [];
+  const ratings = new Map<FilmId, number>();
+
+  for (let i = 0; i < 90; i += 1) {
+    const id = `t${String(i).padStart(2, "0")}`;
+    // A 7-step walk through six decades, so consecutive watches are usually far
+    // apart in release year and a limb has to be found rather than followed.
+    films.push({ id, title: `Film ${i}`, year: 1960 + ((i * 7) % 60), uri: null, directors: [] });
+    ratings.set(id, RATING_MIN + (i % 10) * RATING_STEP);
+
+    if (i >= 80) continue;
+    watches.push({ filmId: id, watchedOn: dayString(i), rewatch: false });
+  }
+
+  return { films, watches, ratings, reviews: new Map(), likes: new Set() };
+}
+
+/** A settled tree, plus the row each release decade was drawn on. */
+function tree(library: Library = treeLibrary()) {
+  const graph = buildTree(library);
+  const layout = createLayout(graph, WIDTH, HEIGHT);
+  settle(layout.simulation);
+
+  const rowFor = new Map(layout.rows.map((row) => [row.key, row]));
+  const at = new Map(layout.nodes.map((node) => [node.id, node]));
+  return { graph, layout, rowFor, at };
+}
+
+test("the rows are release decades, oldest at the top, all the same span", () => {
+  const { graph, layout } = tree();
+
+  assert.deepEqual(
+    layout.rows.map((row) => row.key),
+    [...graph.rows],
+    "the layout draws exactly the rows the graph asked for",
+  );
+  assert.deepEqual(
+    layout.rows.map((row) => row.label),
+    ["1960s", "1970s", "1980s", "1990s", "2000s", "2010s"],
+    "a decade row is named as a decade, not as a bare year",
+  );
+
+  for (let i = 1; i < layout.rows.length; i += 1) {
+    assert.ok(
+      layout.rows[i].y > layout.rows[i - 1].y,
+      `the ${layout.rows[i].label} is drawn above the ${layout.rows[i - 1].label}`,
+    );
+  }
+
+  /*
+    One shared span, like the timeline's — a row scaled to the films it happens to
+    hold would put 2019 under 1994 and the horizontal axis would stop meaning a date.
+  */
+  for (const row of layout.rows) {
+    assert.equal(row.left, layout.rows[0].left);
+    assert.equal(row.right, layout.rows[0].right);
+    assert.deepEqual(row.ticks, [], "a decade band has no unit small enough to tick");
+  }
+});
+
+test("a film sits at the day it was watched, whatever row it is on", () => {
+  /*
+    The claim the geometry rests on, and the one thing that separates this from a
+    generic tree drawing: x is a date. Which is why a parent is never consulted when
+    placing a child — a tree laid out by descending from the root would put a film
+    where its lineage says it belongs rather than where its data does.
+
+    Measured as order rather than as absolute pixels: the exact scale is clamped, so
+    the testable claim is that time runs one way and never doubles back.
+  */
+  const { graph, layout, at } = tree();
+  const span = layout.rows[0].right - layout.rows[0].left;
+
+  const dated = graph.nodes
+    .filter((node) => node.when !== null)
+    .map((node) => ({
+      when: node.when!.year + node.when!.through,
+      x: at.get(node.id)?.x ?? NaN,
+    }))
+    .sort((a, b) => a.when - b.when);
+
+  assert.ok(dated.length >= 80);
+
+  /*
+    Held to a tolerance rather than to exactness because `forceCollide` is allowed
+    to nudge films apart along x — a knot of same-day films has to open somehow. A
+    day of this scale is about 3px, so a fortnight of slack catches a genuine
+    inversion while permitting the spread that makes a busy week readable.
+  */
+  const slack = span / 50;
+  for (let i = 1; i < dated.length; i += 1) {
+    assert.ok(
+      dated[i].x > dated[i - 1].x - slack,
+      `a film watched later settled ${(dated[i - 1].x - dated[i].x).toFixed(0)}px to the left`,
+    );
+  }
+
+  // And the ends are the ends: the first film logged is the leftmost thing drawn.
+  const first = dated[0].x;
+  const last = dated[dated.length - 1].x;
+  assert.ok(last - first > span / 2, "the history is squeezed into half its own axis");
+});
+
+test("a film is drawn on the row for its own release decade", () => {
+  /*
+    The vertical axis, which is the other half of the reading. Held to less than half
+    a row gap: a film nearer another decade's rule than its own would be read as
+    belonging to it, and the rule is the only thing labelling either.
+  */
+  const { graph, layout, at } = tree();
+  const rowFor = new Map(layout.rows.map((row) => [row.key, row]));
+
+  for (const node of graph.nodes) {
+    if (node.when === null || node.year === null) continue;
+    const row = rowFor.get(Math.floor(node.year / 10) * 10);
+    assert.ok(row !== undefined, `${node.year} has no row`);
+    const drift = Math.abs((at.get(node.id)?.y ?? NaN) - row.y);
+    assert.ok(
+      drift < ROW_GAP / 2,
+      `a ${node.year} film settled ${drift.toFixed(0)}px from its own decade rule`,
+    );
+  }
+});
+
+test("a branch is short enough to follow, because a parent is near in release year", () => {
+  /*
+    Why no lane allocation and no `d3-hierarchy`. The branching rule chooses a parent
+    by release year, so edges are inherently short vertically — which is the only
+    reason a tree can be drawn straight onto a fixed graticule without its limbs
+    crossing the whole map. If this ever fails the geometry needs rethinking, not the
+    tolerance.
+  */
+  const { graph, layout } = tree();
+  const at = new Map(layout.nodes.map((node) => [node.id, node]));
+
+  let far = 0;
+  for (const edge of graph.edges) {
+    const a = at.get(edge.source);
+    const b = at.get(edge.target);
+    if (!a || !b) continue;
+    if (Math.abs(a.y - b.y) > 2 * ROW_GAP) far += 1;
+  }
+
+  assert.ok(
+    far / graph.edges.length < 0.1,
+    `${far} of ${graph.edges.length} branches reach more than two rows`,
+  );
+});
+
+test("films the tree cannot place sit below the decades, not inside them", () => {
+  // Same claim as the timeline's, and it has to hold for a second reason here: every
+  // row is a release decade, so a stray film level with one would assert an era it
+  // never claimed.
+  const { graph, layout } = tree();
+  const at = new Map(layout.nodes.map((node) => [node.id, node]));
+  const yOf = (id: string) => at.get(id)?.y ?? NaN;
+
+  const parked = unplaced(graph).map((node) => yOf(node.id));
+  const drawn = graph.nodes.filter((node) => node.when !== null).map((node) => yOf(node.id));
+
+  assert.equal(parked.length, 10);
+  assert.ok(
+    Math.min(...parked) > Math.max(...drawn),
+    `a parked film settled at y=${Math.min(...parked).toFixed(0)}, level with a placed one at y=${Math.max(...drawn).toFixed(0)}`,
+  );
+});
+
+test("the time axis is clamped at both ends", () => {
+  /*
+    A fortnight of viewing at `YEAR_WIDTH` would be a 40px dash with every film on
+    top of every other; a forty-year history unclamped would be wide enough that
+    `fitToFrame` opens it below the zoom at which any title prints. Both bounds are
+    asserted because a clamp nobody notices is a clamp that can quietly stop
+    clamping.
+  */
+  const films = Array.from({ length: 12 }, (_, i) => ({
+    id: `c${i}`,
+    title: `Film ${i}`,
+    year: 1980 + i * 3,
+    uri: null,
+    directors: [],
+  }));
+  const spanOf = (dates: readonly string[]) => {
+    const layout = createLayout(
+      buildTree({
+        films,
+        watches: films.map((f, i) => ({ filmId: f.id, watchedOn: dates[i], rewatch: false })),
+        ratings: new Map(),
+        reviews: new Map(),
+        likes: new Set(),
+      }),
+      WIDTH,
+      HEIGHT,
+    );
+    return layout.rows[0].right - layout.rows[0].left;
+  };
+
+  const fortnight = films.map((_, i) => `2024-03-${String(i + 1).padStart(2, "0")}`);
+  assert.equal(spanOf(fortnight), TREE_MIN_SPAN);
+
+  const decades = films.map((_, i) => `${1984 + i * 4}-06-01`);
+  assert.equal(spanOf(decades), TREE_MAX_SPAN);
+
+  // And a library watched in one single day still gets a drawable axis.
+  const oneDay = films.map(() => "2024-03-01");
+  assert.equal(spanOf(oneDay), TREE_MIN_SPAN);
+});
+
+test("framing keeps the whole history and its decade labels on screen", () => {
+  // The same claim as the timeline's, and it needs restating: a decade label is five
+  // characters where a year is four, so it reaches further into the left margin.
+  const { layout } = tree();
+  const fit = fitToFrame(layout.nodes, WIDTH, HEIGHT, layout.rows);
+  const onScreen = (x: number) => fit.x + fit.k * x;
+
+  const row = layout.rows[0];
+  assert.ok(onScreen(row.left - YEAR_LABEL_GAP) > 0, "the decade labels are off the left edge");
+  assert.ok(onScreen(row.right) < WIDTH, "the end of the history runs off the right edge");
+});
+
+test("the same library always settles into the same tree", () => {
+  const graph = buildTree(treeLibrary());
+
+  const once = createLayout(graph, WIDTH, HEIGHT);
+  settle(once.simulation);
+  const twice = createLayout(graph, WIDTH, HEIGHT);
+  settle(twice.simulation);
+
+  assert.deepEqual(positionsOf(once.nodes), positionsOf(twice.nodes));
+  assert.deepEqual(once.rows, twice.rows);
+});
+
+test("switching between the thread and the tree moves films rather than replacing them", () => {
+  /*
+    The seam `Graph.shape` exists for, asserted at the layer that would break it. A
+    film keeps its node id across an axis switch, which is what lets the re-sort be
+    watched as travel — carry the outgoing positions in and every film starts from
+    where the user last saw it rather than flying in from nowhere.
+  */
+  const source = treeLibrary();
+  const thread = createLayout(buildThread(source), WIDTH, HEIGHT);
+  settle(thread.simulation);
+
+  const graph = buildTree(source);
+  const resorted = createLayout(graph, WIDTH, HEIGHT, positionsOf(thread.nodes));
+
+  assert.deepEqual(
+    resorted.nodes.map((node) => node.id).sort(),
+    thread.nodes.map((node) => node.id).sort(),
+    "the two shapes disagree about which films exist",
+  );
+  assert.ok(resorted.seeded, "the re-sort should start from the timeline's positions");
+
+  /*
+    And it arrives at a readable tree, not merely somewhere. Not the same coordinates
+    as a fresh build: the path through a force simulation affects where in a knot a
+    film lands, and demanding otherwise would be testing d3 rather than EIGA. What
+    must match is the reading — every film on its own decade row, which is the one
+    claim the vertical axis makes.
+  */
+  settle(resorted.simulation);
+  const at = new Map(resorted.nodes.map((node) => [node.id, node]));
+  const rowFor = new Map(resorted.rows.map((row) => [row.key, row]));
+
+  for (const node of graph.nodes) {
+    if (node.when === null || node.year === null) continue;
+    const row = rowFor.get(Math.floor(node.year / 10) * 10);
+    assert.ok(row !== undefined);
+    assert.ok(
+      Math.abs((at.get(node.id)?.y ?? NaN) - row.y) < ROW_GAP / 2,
+      `after a re-sort a ${node.year} film is stranded off its own decade rule`,
+    );
+  }
 });

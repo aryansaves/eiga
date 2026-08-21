@@ -38,8 +38,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, zoomTransform, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 
-import { monthStarts } from "@/domain/calendar.ts";
-import { RATING_MAX } from "@/domain/types.ts";
+import { RATING_MAX, decadeLabel } from "@/domain/types.ts";
 import {
   groupCount,
   neighboursOf,
@@ -54,11 +53,11 @@ import {
   filmRadius,
   fitToFrame,
   hubRadius,
+  mapRows,
   MONTH_TICK,
   positionsOf,
   settle,
   YEAR_LABEL_GAP,
-  YEAR_WIDTH,
   type LayoutHandle,
   type Position,
 } from "@/viz/layout.ts";
@@ -175,26 +174,45 @@ function filmDescription(node: GraphNode): string {
 /**
  * What the map is, for a screen reader.
  *
- * Branches on topology because the two say genuinely different things: a hub map
- * groups films, and the thread places them on a calendar. `groupCount` supplies the
- * number in both cases, so this can never disagree with the status line beneath the
- * map.
+ * Branches on topology because the three say genuinely different things: a hub map
+ * groups films, the thread places them on a calendar, and the tree hangs each one off
+ * an earlier film. `groupCount` supplies the number in every case, so this can never
+ * disagree with the status line beneath the map.
  *
- * The thread wording carries the span because the row stack is the one thing a
- * screen reader cannot see and the year labels are the only place it is written
- * down. Saying "in the order they were watched" — true of the spiral this replaced —
- * would now describe the sequence and omit the scale.
+ * Both film-to-film shapes carry their graticule span, because the row stack is the
+ * one thing a screen reader cannot see and the row labels are the only place the
+ * scale is written down. Saying "in the order they were watched" — true of the spiral
+ * this replaced — would describe the sequence and omit the scale.
  */
 function mapDescription(graph: Graph, films: number): string {
   const groups = groupCount(graph);
-  if (graph.shape !== "thread") {
+  const unit = groups === 1 ? graph.groupKind : `${graph.groupKind}s`;
+
+  if (graph.shape === "hubs") {
     return `Map of ${films} films across ${groups} ${graph.groupKind} groups`;
   }
-  const first = graph.years[0];
-  const last = graph.years[graph.years.length - 1];
+
+  const first = graph.rows[0];
+  const last = graph.rows[graph.rows.length - 1];
+
+  if (graph.shape === "tree") {
+    /*
+      Described by its structure and never by its root film's title. The root is
+      whatever the first row of the export happened to be, and reading a title aloud
+      here would announce one film as the subject of a map that is about all of them.
+    */
+    const eras =
+      first === undefined
+        ? ""
+        : first === last
+          ? `, all from the ${decadeLabel(first)}`
+          : `, from the ${decadeLabel(first)} to the ${decadeLabel(last)}`;
+    return `Map of ${films} films branching outward from the first one logged, through ${groups} ${unit}, grouped by release decade${eras}`;
+  }
+
   const span =
     first === undefined ? "" : first === last ? ` in ${first}` : ` from ${first} to ${last}`;
-  return `Map of ${films} films on the days they were watched, across ${groups} days${span}`;
+  return `Map of ${films} films on the days they were watched, across ${groups} ${unit}${span}`;
 }
 
 export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }: GraphViewProps) {
@@ -203,15 +221,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
   const viewportRef = useRef<SVGGElement>(null);
   const nodeEls = useRef(new Map<string, SVGGElement>());
   const edgeEls = useRef(new Map<string, SVGLineElement | SVGPathElement>());
-  /**
-   * The year rows, keyed by year.
-   *
-   * One element each, not four: a row's rule, its twelve month ticks and its number
-   * are all placed relative to the row's own left end, so the only coordinate the
-   * simulation contributes is where that end is. Everything inside is a fixed offset
-   * React can write once.
-   */
-  const rowEls = useRef(new Map<number, SVGGElement>());
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   /** Set once the user pans or zooms, after which the view is theirs to keep. */
   const exploredRef = useRef(false);
@@ -296,6 +305,20 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
   // Structure, straight from the graph. Deliberately free of coordinates.
   const films = useMemo(() => graph.nodes.filter((node) => node.kind === "film"), [graph]);
   const hubs = useMemo(() => graph.nodes.filter((node) => node.kind === "hub"), [graph]);
+
+  /**
+   * The graticule, at render time.
+   *
+   * The one part of the map React positions itself. Rows are not simulated — they
+   * *are* the scale the films settle against — so they are a pure function of the
+   * graph and the viewport, which are both known here. `createLayout` calls the same
+   * function with the same arguments, so the rows the labeller avoids and the rows
+   * `fitToFrame` measures are the rows on screen.
+   */
+  const rows = useMemo(
+    () => mapRows(graph, layoutWidth, layoutHeight),
+    [graph, layoutWidth, layoutHeight],
+  );
 
   /**
    * Choose which titles the map has room for, and publish the scale it was chosen
@@ -436,21 +459,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
 
     const frame = () => frameTo(layout, sizeRef.current);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    /*
-      Year rows are placed once and never again. They are the map's graticule:
-      fixed to the calendar while the films settle against it, which is the
-      relationship a printed map has between its grid and its terrain — and a
-      graticule that drifted with the terrain would be measuring nothing.
-
-      Only the row's left end is written here. The rule, the twelve month ticks and
-      the number are all offsets from it, so React has already placed them.
-    */
-    for (const row of layout.rows) {
-      rowEls.current
-        .get(row.year)
-        ?.setAttribute("transform", `translate(${row.left.toFixed(2)} ${row.y.toFixed(2)})`);
-    }
 
     /*
       A map that is not re-sorting settles before it is shown. Watching a hundred
@@ -651,11 +659,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
     else edgeEls.current.delete(id);
   };
 
-  const registerRow = (year: number) => (el: SVGGElement | null) => {
-    if (el) rowEls.current.set(year, el);
-    else rowEls.current.delete(year);
-  };
-
   const toggle = (id: string) => onFocus(id === focusedId ? null : id);
 
   return (
@@ -685,28 +688,42 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
           */}
 
           {/*
-            The year rows, underneath everything — a graticule the map is drawn
-            over, never a thing in it. Deliberately not nodes: a year that could be
-            clicked, focused or counted would be a hub, and the timeline has none.
+            The graticule, underneath everything — a grid the map is drawn over, never
+            a thing in it. Calendar years on the thread, release decades on the tree,
+            and nothing at all on a hub map, which has no scale to read against.
 
-            Each row is a group placed at its own January 1st, so everything in it is
-            written in offsets from there: the rule runs the width of a year, the
-            ticks stand at the true start of each month, and the number sits out in
-            the left margin. Rendered from `graph.years`, positioned from
-            `layout.rows`, which is the same division of labour as every node here.
+            Deliberately not nodes: a row that could be clicked, focused or counted
+            would be a hub, and neither of these shapes has any.
+
+            Each row is a group placed at its own left end, so everything inside is
+            written in offsets from there: the rule runs the row's width, the ticks
+            stand wherever the row puts them, and the label sits out in the left
+            margin. Unlike every node here this is positioned by React rather than by
+            the simulation, and it is the one thing on the map that should be — a
+            graticule that drifted with the terrain would be measuring nothing.
           */}
           <g aria-hidden="true">
             {ready &&
-              graph.years.map((year) => (
-                <g key={year} ref={registerRow(year)} className="eiga-year">
-                  <line className="eiga-year-rule" x2={YEAR_WIDTH} />
+              rows.map((row) => (
+                <g
+                  key={row.key}
+                  className="eiga-year"
+                  transform={`translate(${row.left.toFixed(2)} ${row.y.toFixed(2)})`}
+                >
+                  <line className="eiga-year-rule" x2={row.right - row.left} />
                   {/*
-                    Twelve, and unevenly spaced: February is 28 days of 365, so the
-                    March tick belongs a few pixels left of an even twelfth. The same
-                    function places the films, which is the point of `domain/calendar`.
+                    Twelve on a timeline and unevenly spaced — February is 28 days of
+                    365, so the March tick belongs a few pixels left of an even
+                    twelfth. The same function places the films, which is the point of
+                    `domain/calendar`. A decade band carries none: it spans a whole
+                    viewing life, and there is no unit of that small enough to tick
+                    without becoming a grid.
+
+                    Ticks arrive as absolute x and are drawn relative to the row's
+                    own left end, because that is where the group sits.
                   */}
-                  {monthStarts(year).map((fraction, month) => {
-                    const x = fraction * YEAR_WIDTH;
+                  {row.ticks.map((tick, month) => {
+                    const x = tick - row.left;
                     return (
                       <line
                         key={month}
@@ -719,7 +736,7 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
                     );
                   })}
                   <text x={-YEAR_LABEL_GAP} dy="0.32em">
-                    {year}
+                    {row.label}
                   </text>
                 </g>
               ))}
