@@ -85,14 +85,13 @@ export type HubAxisId = "decade" | "rating" | "watchYear" | "director";
 /**
  * Every view the map can be drawn in, grouped or not.
  *
- * Two of these are not groupings at all and are named here anyway. `diary` is the
- * watch history as a single thread, and it is what the user sees first;
- * `discovery` is the same history branched into a tree by how far each film
- * reached from what came before it. Keeping all three in one type is what lets one
- * control offer every topology — see the `Axis` union in `graph/axes`, which is
- * where the differences between them actually matter.
+ * `diary` is the odd one and is named here anyway: it is not a grouping at all
+ * but the watch history as a single thread, and it is what the user sees first.
+ * Keeping it in the same type is what lets one control offer both topologies —
+ * see the `Axis` union in `graph/axes`, which is where the difference between
+ * them actually matters.
  */
-export type AxisId = "diary" | "discovery" | HubAxisId;
+export type AxisId = "diary" | HubAxisId;
 
 export type DiagnosticSeverity = "warning" | "error";
 
@@ -134,18 +133,7 @@ export function emptyLibrary(): Library {
 /** The decade a film belongs to, e.g. 1994 -> 1990. Null when the year is unknown. */
 export function decadeOf(film: Film): number | null {
   if (film.year === null) return null;
-  return decadeFromYear(film.year);
-}
-
-/**
- * The same arithmetic for a year already known to exist.
- *
- * Separate from {@link decadeOf} so a caller that has already established a year
- * is not handed a `number | null` it would have to re-check — the check would be
- * unreachable, and an unreachable guard reads as a real one to the next person.
- */
-export function decadeFromYear(year: number): number {
-  return Math.floor(year / 10) * 10;
+  return Math.floor(film.year / 10) * 10;
 }
 
 export function decadeLabel(decade: number): string {

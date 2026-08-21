@@ -181,21 +181,17 @@ export function buildThread(library: Library): Graph {
     edges: [...edges.values()].sort((a, b) => a.id.localeCompare(b.id)),
     shape: "thread",
     groupKind: THREAD_GROUP_KIND,
-    rows: yearRows(watchedYears),
+    years: yearRows(watchedYears),
   };
 }
 
 /**
- * Films a film-to-film map could not place, in library order.
+ * Films the thread could not place, in library order.
  *
- * Shared by the thread and the tree. They park a film for slightly different
- * reasons — the thread needs a readable watch date, the tree needs a release year
- * as well — but both mark it the same way, with a null `order`, so the check here
- * is the shape-neutral one and stays correct for either. Returned rather than
- * counted so the caller can both report the number and lay them out; the status
- * line stating how many there are is the only thing that keeps their band from
- * reading as a rendering fault.
+ * Returned rather than counted so the caller can both report the number and lay
+ * them out; the status line saying "10 undated" is the only thing that keeps
+ * their scattered band from reading as a rendering fault.
  */
-export function unplaced(graph: Graph): readonly GraphNode[] {
+export function unthreaded(graph: Graph): readonly GraphNode[] {
   return graph.nodes.filter((node) => node.kind === "film" && node.order === null);
 }

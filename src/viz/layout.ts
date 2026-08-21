@@ -5,23 +5,16 @@
  * d3-force its own mutable copies of the nodes, and exposes the simulation. No
  * React, no DOM.
  *
- * There are three authored geometries here, one per topology, and in every case
- * the authoring is the point: left to itself d3-force produces a symmetric blob
- * with no reading order, which is a picture of nothing.
+ * There are two authored geometries here, one per topology, and in both cases the
+ * authoring is the point: left to itself d3-force produces a symmetric blob with
+ * no reading order, which is a picture of nothing.
  *
  * **The timeline** — the default map — is the calendar itself. One row per year,
  * stacked oldest at the top; a film's horizontal place is the day it was seen and
  * nothing else, so the same week sits under the same month tick in every row and a
- * dormant spring is visible as empty rule. See `calendarRows` for the geometry, and
+ * dormant spring is visible as empty rule. See `yearRows` for the geometry, and
  * `graph/thread.ts` for why this replaced a spiral that spaced films by their
  * place in a queue.
- *
- * **The discovery tree** borrows that grammar and re-labels both axes: across is
- * still the day a film was seen, but the whole watch history now fits one span
- * instead of folding into years, and a row is a *release decade* rather than a
- * calendar year. So a limb reaching down the rows is a viewing life reaching back
- * through film history, which is the reading `graph/tree.ts` builds the branching
- * for. See `decadeBands` and `timeScale`.
  *
  * **A hub map** pins hubs along a staggered horizontal band in *axis* order and
  * seeds films beside their hub. On an ordinal axis that reads left-to-right
@@ -33,13 +26,13 @@
  * placing, because deterministic placement is worth more than an organic chain, and
  * the tether only stops the ends of a long scale from drifting apart.
  *
- * None of the three is a plotted figure. A layout that placed every node exactly
- * would be a diagram, so each is given a reason to be irregular — the hub map by
+ * Neither map is a plotted figure. A layout that placed every node exactly would
+ * be a diagram, so both are given a reason to be irregular — the hub map by
  * anchoring films only faintly and letting their neighbours shoulder them around,
- * the two film-to-film maps by scattering films *within* their row. The mechanisms
- * differ because where an axis carries a date the other axis carries nothing: a
- * film nudged sideways would be claiming the wrong day, so it is only ever nudged
- * up and down. See `ROW_WANDER`.
+ * the timeline by scattering films *within* their row. The two mechanisms differ
+ * because on the timeline one axis carries a date and the other carries nothing:
+ * a film nudged sideways would be claiming the wrong day, so it is only ever
+ * nudged up and down. See `ROW_WANDER`.
  *
  * Seeding is deterministic — no `Math.random` — so the same library always
  * settles into recognisably the same map, and a reload does not shuffle a place
@@ -59,12 +52,7 @@ import {
 } from "d3-force";
 
 import { monthStarts } from "../domain/calendar.ts";
-import {
-  decadeFromYear,
-  decadeLabel,
-  RATING_MAX,
-  RATING_MIN,
-} from "../domain/types.ts";
+import { RATING_MAX, RATING_MIN } from "../domain/types.ts";
 import { orderedHubs, type Graph, type GraphEdgeKind, type GraphNode } from "../graph/build.ts";
 
 export interface LayoutNode extends GraphNode, SimulationNodeDatum {
@@ -90,15 +78,14 @@ export interface LayoutHandle {
   readonly edges: readonly LayoutEdge[];
   readonly simulation: Simulation<LayoutNode, LayoutEdge>;
   /**
-   * The graticule rows: calendar years on the timeline, release decades on the
-   * tree. Empty on a hub map, which has no scale to read along.
+   * The year rows of the diary timeline. Empty on a hub map.
    *
-   * Fixed geometry, not simulated: the rows are the scale and the films settle
+   * Fixed geometry, not simulated: the rows are the calendar and the films settle
    * against them, which is exactly the relationship a printed map has between its
    * graticule and its terrain. A graticule that drifted with the terrain would be
    * measuring nothing.
    */
-  readonly rows: readonly MapRow[];
+  readonly rows: readonly YearRow[];
   /**
    * Whether any node started from a previous position.
    *
@@ -342,111 +329,70 @@ const UNDATED_LINE = 34;
 const ROW_WANDER = 7;
 
 /**
- * One row of a graticule: a labelled horizontal rule films are read against.
- *
- * Deliberately one type for two things. A calendar year on the timeline and a
- * release decade on the tree are drawn identically and measured identically, and
- * the alternative — a second parallel row type — would fork every consumer of it:
- * the framing arithmetic, the label collision pass, and the renderer.
+ * One calendar year, drawn as a row.
  *
  * Returned from the layout and drawn by React as a background mark, *not* as a
- * node. A row that could be clicked, focused or counted would be a hub, and
- * neither of these topologies has any.
+ * node — a year that could be clicked, focused or counted would be a hub, and the
+ * timeline has none. A rule, twelve ticks and a number in the margin: the marks a
+ * printed chart uses to say what its axis is, and nothing more.
  */
-export interface MapRow {
-  /** The year or decade this row stands for. Identity, and ascending across rows. */
-  readonly key: number;
-  /** How it reads in the margin: "2024", or "1990s". */
-  readonly label: string;
-  /** The rule's y, which is also the height films in this row are drawn at. */
+export interface YearRow {
+  readonly year: number;
+  /** The rule's y, which is also the height films in this year are drawn at. */
   readonly y: number;
-  /** Where the rule starts: January 1st, or the first day in the history. */
+  /** January 1st. */
   readonly left: number;
-  /** Where it ends: the end of December 31st, or the last day in the history. */
+  /** The end of December 31st. */
   readonly right: number;
-  /**
-   * Subdivisions along the rule, as absolute x. Twelve month starts on a
-   * timeline row, unevenly spaced; none on a tree, whose rule spans a whole
-   * viewing life and has no unit small enough to tick without becoming a grid.
-   */
-  readonly ticks: readonly number[];
+  /** Where each month begins, January first. Twelve of them, unevenly spaced. */
+  readonly months: readonly number[];
 }
 
 /**
- * The rows for a timeline — one per calendar year.
+ * The rows for a timeline. Empty for anything else, since it has no calendar.
  *
  * Every row spans a whole year, `left` to `right`, whether or not films reach
  * either end. That is what makes the stack readable across rows — February is at
  * the same x in every one of them — and it is also the honest drawing: the rule is
  * the year, and a bare stretch of it is a month nothing was watched in.
  */
-function calendarRows(graph: Graph, centre: Position): readonly MapRow[] {
-  const count = graph.rows.length;
+function yearRows(graph: Graph, centre: Position): readonly YearRow[] {
+  const count = graph.years.length;
   if (count === 0) return [];
 
   const left = centre.x - YEAR_WIDTH / 2;
   const top = centre.y - ((count - 1) * ROW_GAP) / 2;
 
-  return graph.rows.map((year, index) => ({
-    key: year,
-    label: String(year),
+  return graph.years.map((year, index) => ({
+    year,
     y: top + index * ROW_GAP,
     left,
     right: left + YEAR_WIDTH,
     // Computed per year, not shared: February moves in a leap year, and a tick
     // drawn a day and a half off is a film sitting on the wrong side of its month.
-    ticks: monthStarts(year).map((fraction) => left + fraction * YEAR_WIDTH),
+    months: monthStarts(year).map((fraction) => left + fraction * YEAR_WIDTH),
   }));
-}
-
-/**
- * Parks the films a scale could not place, in a band below the last row.
- *
- * Shared by both film-to-film maps, because both face the same problem and both
- * answer it the same way. These films have to be drawn somewhere, and every
- * position *inside* the scale means a date — which for a film with no readable
- * watch date would be a date it was not watched on. Outside and unlinked is the
- * only honest place, and the status line names the count so the band reads as a
- * statement rather than as a rendering fault.
- *
- * A tidy run rather than a scatter, deliberately: these films are an appendix to
- * the map, not a region of it, and a strip reads as one. `graph.nodes` is sorted
- * by id, so which film lands where is stable across reloads.
- */
-function park(
-  graph: Graph,
-  anchors: Map<string, Position>,
-  left: number,
-  width: number,
-  floor: number,
-): void {
-  const columns = Math.max(1, Math.floor(width / UNDATED_STRIDE));
-  const top = floor + UNDATED_GAP;
-  let placed = 0;
-  for (const node of graph.nodes) {
-    if (node.when !== null) continue;
-    anchors.set(node.id, {
-      x: left + (placed % columns) * UNDATED_STRIDE,
-      y: top + Math.floor(placed / columns) * UNDATED_LINE,
-    });
-    placed += 1;
-  }
 }
 
 /**
  * Where each film sits on the timeline.
  *
  * Films with a calendar position take it exactly, scattered only in height. Films
- * with none — around ten in a real export — go to the parked band.
+ * with none — around ten in a real export — are parked in a band below the last
+ * row: they have to be somewhere, and every position inside the calendar means a
+ * date, which for these films would be a date they were not watched on. Outside
+ * and unlinked is the only honest place, and the status line names the count so
+ * the band reads as a statement rather than as a rendering fault.
  */
 function timelineAnchors(
   graph: Graph,
-  rows: readonly MapRow[],
+  rows: readonly YearRow[],
   centre: Position,
 ): ReadonlyMap<string, Position> {
   const anchors = new Map<string, Position>();
-  const byYear = new Map(rows.map((row) => [row.key, row]));
+  const byYear = new Map(rows.map((row) => [row.year, row]));
   const left = rows[0]?.left ?? centre.x - YEAR_WIDTH / 2;
+  let floor = rows[rows.length - 1]?.y ?? centre.y;
 
   /*
     Indexed by position in `graph.nodes`, which is sorted by id — so which film
@@ -465,138 +411,24 @@ function timelineAnchors(
     });
   });
 
-  park(graph, anchors, left, YEAR_WIDTH, rows[rows.length - 1]?.y ?? centre.y);
-  return anchors;
-}
-
-/* --- The discovery tree -------------------------------------------------- */
-
-/**
- * Narrowest and widest the tree's time axis may be drawn, in layout px.
- *
- * Unlike the timeline, whose scale is fixed at `YEAR_WIDTH` per year because its
- * rows have to line up with each other, the tree draws its whole history as one
- * span and so has to fit a scale to it. The mapping stays linear either way — a
- * dormant year is proportionally as wide here as it is there, which is the claim
- * that makes x readable as a date at all. These two bounds only decide how many
- * pixels the whole span gets.
- *
- * The floor is for a library watched over a fortnight: at `YEAR_WIDTH` that is
- * 40px, so the rules would be dashes and every film would sit on top of every
- * other. The ceiling is the same trade `YEAR_WIDTH` documents from the other
- * side — a twenty-year history compressed into it gets dense along x, and the
- * alternative is a map so wide that `fitToFrame` opens it below the scale at
- * which any title prints.
- *
- * Exported for the tests, which assert both bounds bite: a clamp nobody notices is
- * a clamp that can quietly stop clamping.
- */
-export const TREE_MIN_SPAN = 720;
-export const TREE_MAX_SPAN = 2400;
-
-/** The tree's time axis: where the history starts, how long it runs, how wide it is drawn. */
-interface TimeScale {
-  /** Absolute time of the earliest placed film, as `year + fraction`. */
-  readonly start: number;
-  /** Length of the history in years. Zero for a library watched in one day. */
-  readonly span: number;
-  /** How many layout px that span is drawn across. */
-  readonly extent: number;
-}
-
-function timeScale(graph: Graph): TimeScale {
-  let low = Infinity;
-  let high = -Infinity;
+  /*
+    A tidy run rather than a scatter, and deliberately so: these films are an
+    appendix to the calendar, not a region of it, and a strip parked below the last
+    year reads as one. `graph.nodes` is sorted by id, so which film lands where is
+    stable across reloads.
+  */
+  const columns = Math.max(1, Math.floor(YEAR_WIDTH / UNDATED_STRIDE));
+  floor += UNDATED_GAP;
+  let placed = 0;
   for (const node of graph.nodes) {
-    if (node.when === null) continue;
-    // Absolute time, which is all this needs from a calendar point — the fraction
-    // through the year is exactly what makes two dates in one year comparable.
-    const at = node.when.year + node.when.through;
-    if (at < low) low = at;
-    if (at > high) high = at;
+    if (node.when !== null) continue;
+    anchors.set(node.id, {
+      x: left + (placed % columns) * UNDATED_STRIDE,
+      y: floor + Math.floor(placed / columns) * UNDATED_LINE,
+    });
+    placed += 1;
   }
 
-  if (low === Infinity) return { start: 0, span: 0, extent: TREE_MIN_SPAN };
-
-  const span = high - low;
-  return {
-    start: low,
-    span,
-    extent: Math.min(TREE_MAX_SPAN, Math.max(TREE_MIN_SPAN, YEAR_WIDTH * span)),
-  };
-}
-
-/**
- * The rows for a tree — one per release decade, oldest at the top.
- *
- * Reuses `ROW_GAP` rather than declaring a band gap of its own, because the
- * vertical need is the same one: room for a title hanging below a film, and room
- * for `forceCollide` to open a crowded stretch out. If anything a tree wants
- * slightly more, since its branch edges cross between rows where the timeline's
- * chain mostly runs along them.
- */
-function decadeBands(
-  graph: Graph,
-  centre: Position,
-  scale: TimeScale,
-): readonly MapRow[] {
-  const count = graph.rows.length;
-  if (count === 0) return [];
-
-  const left = centre.x - scale.extent / 2;
-  const top = centre.y - ((count - 1) * ROW_GAP) / 2;
-
-  return graph.rows.map((decade, index) => ({
-    key: decade,
-    label: decadeLabel(decade),
-    y: top + index * ROW_GAP,
-    left,
-    right: left + scale.extent,
-    ticks: [],
-  }));
-}
-
-/**
- * Where each film sits on the tree: across by watch date, down by release decade.
- *
- * The two axes are read the same way the timeline's are, which is why the same
- * `ROW_WANDER` scatter applies and applies vertically only. Height *within* a
- * band carries nothing — a film is not more 1990s than its neighbour — while its
- * horizontal place is the day it was seen, so a sideways nudge would be a claim
- * about a date.
- *
- * A film's parent is placed by the same rule and never consulted here. That is
- * deliberate: a tree drawn by descending from the root would put a film where its
- * lineage says it belongs rather than where its data does, and the branch edges
- * would then be the only true thing on the map. Here they are drawn between two
- * independently correct positions, so a long edge is a real reach across time and
- * a short one is a real neighbour.
- */
-function treeAnchors(
-  graph: Graph,
-  rows: readonly MapRow[],
-  centre: Position,
-  scale: TimeScale,
-): ReadonlyMap<string, Position> {
-  const anchors = new Map<string, Position>();
-  const byDecade = new Map(rows.map((row) => [row.key, row]));
-  const left = rows[0]?.left ?? centre.x - scale.extent / 2;
-
-  graph.nodes.forEach((node, index) => {
-    if (node.when === null || node.year === null) return;
-    const row = byDecade.get(decadeFromYear(node.year));
-    if (row === undefined) return;
-    const at = node.when.year + node.when.through;
-    // A library watched in a single day has no span to divide by, and every film
-    // in it happened at the same moment — so they share the middle of the rule.
-    const across = scale.span === 0 ? 0.5 : (at - scale.start) / scale.span;
-    anchors.set(node.id, {
-      x: row.left + across * scale.extent,
-      y: row.y + ROW_WANDER * Math.sin(index * GOLDEN_ANGLE),
-    });
-  });
-
-  park(graph, anchors, left, scale.extent, rows[rows.length - 1]?.y ?? centre.y);
   return anchors;
 }
 
@@ -626,7 +458,6 @@ const LINK_DISTANCE: Record<GraphEdgeKind, number> = {
   spine: 240,
   chain: 22,
   wrap: YEAR_WIDTH,
-  branch: 90,
 };
 
 const LINK_STRENGTH: Record<GraphEdgeKind, number> = {
@@ -643,20 +474,12 @@ const LINK_STRENGTH: Record<GraphEdgeKind, number> = {
     later; this is a number small enough to say "on purpose, and negligible".
   */
   wrap: 0.004,
-  /*
-    Inert for the same reason, and more strictly so. Both ends of a branch are
-    placed by data — across by watch date, down by release decade — so any pull
-    along it would move a film off one of the two facts the tree is drawn from.
-    Its `LINK_DISTANCE` is therefore arbitrary and never reached; it is a
-    plausible number rather than a meaningful one.
-  */
-  branch: 0.004,
 };
 
 /**
- * How firmly a film is held to its place on a map whose axes carry meaning.
+ * How firmly a film is held to its place on the timeline.
  *
- * Split by axis, unlike the hub map, because on these maps the two axes mean
+ * Split by axis, unlike the hub map, because on this map the two axes mean
  * different things. Horizontal position *is* the watch date, and the whole claim
  * of the map is that it can be read as one — so x pulls hard and a film dragged a
  * fortnight out of place by its neighbours is a bug. Vertical position inside a
@@ -670,25 +493,6 @@ const LINK_STRENGTH: Record<GraphEdgeKind, number> = {
 const PLACE_PULL_X = 0.62;
 const PLACE_PULL_Y = 0.2;
 
-/**
- * The graticule for a map at a given size, oldest row first.
- *
- * Exported because the renderer needs a row's label, its ticks and its width at
- * *render* time — a row's contents are React's children, written once and never
- * touched again — while a simulation does not exist until an effect has run. Being
- * pure and depending only on `(graph, width, height)` is what makes that safe: the
- * renderer and `createLayout` call the same function with the same arguments and
- * cannot disagree about where a row is or what it says.
- *
- * Empty on a hub map, which has no scale to draw against.
- */
-export function mapRows(graph: Graph, width: number, height: number): readonly MapRow[] {
-  const centre = { x: width / 2, y: height / 2 };
-  if (graph.shape === "thread") return calendarRows(graph, centre);
-  if (graph.shape === "tree") return decadeBands(graph, centre, timeScale(graph));
-  return [];
-}
-
 export function createLayout(
   graph: Graph,
   width: number,
@@ -696,23 +500,11 @@ export function createLayout(
   previous?: ReadonlyMap<string, Position>,
 ): LayoutHandle {
   const centre = { x: width / 2, y: height / 2 };
-
-  /*
-    The thread and the tree differ in what their axes are labelled and in nothing
-    else about how they are laid out: both draw a fixed graticule, both place films
-    on it by date, and both need the same forces. So most of what follows branches
-    on `placed` rather than on the shape.
-  */
   const thread = graph.shape === "thread";
-  const tree = graph.shape === "tree";
-  const placed = thread || tree;
-
-  const rows = mapRows(graph, width, height);
+  const rows = thread ? yearRows(graph, centre) : [];
   const anchors = thread
     ? timelineAnchors(graph, rows, centre)
-    : tree
-      ? treeAnchors(graph, rows, centre, timeScale(graph))
-      : hubMapAnchors(graph, width, height);
+    : hubMapAnchors(graph, width, height);
   let seeded = false;
 
   const nodes: LayoutNode[] = graph.nodes.map((node, index) => {
@@ -720,9 +512,9 @@ export function createLayout(
     const anchor = anchors.get(node.id) ?? centre;
 
     // On a hub map films fan out around their hub, having nowhere better to be
-    // until the forces sort them out. On a placed map the anchor already is the
+    // until the forces sort them out. On the timeline the anchor already is the
     // answer, scatter and all, so a film starts exactly on it.
-    const spread = placed ? 0 : isHub ? 0 : 34 + 5 * Math.sqrt(index);
+    const spread = thread ? 0 : isHub ? 0 : 34 + 5 * Math.sqrt(index);
     const angle = index * GOLDEN_ANGLE;
 
     /*
@@ -772,7 +564,7 @@ export function createLayout(
         .strength((edge) => LINK_STRENGTH[edge.kind]),
     )
     // Charge is not among the forces here: it is a hub map's, and it is added
-    // below rather than chained, because neither placed map may carry one.
+    // below rather than chained, because the thread must not carry one.
     .force(
       "collide",
       forceCollide<LayoutNode>()
@@ -788,19 +580,19 @@ export function createLayout(
       weaker claim on the same film, enough to bias a cluster toward its side of
       the map and not enough to flatten it into a rosette around a point.
 
-      On the timeline and the tree, hard across and loose down: the horizontal axis
-      is a date and the vertical one is only room to breathe. See `PLACE_PULL_X`.
+      On the timeline, hard across and loose down: the horizontal axis is the
+      calendar and the vertical one is only room to breathe. See `PLACE_PULL_X`.
     */
     .force(
       "x",
       forceX<LayoutNode>((node) => node.anchorX).strength((node) =>
-        placed ? PLACE_PULL_X : node.kind === "hub" ? 0.42 : 0.02,
+        thread ? PLACE_PULL_X : node.kind === "hub" ? 0.42 : 0.02,
       ),
     )
     .force(
       "y",
       forceY<LayoutNode>((node) => node.anchorY).strength((node) =>
-        placed ? PLACE_PULL_Y : node.kind === "hub" ? 0.3 : 0.03,
+        thread ? PLACE_PULL_Y : node.kind === "hub" ? 0.3 : 0.03,
       ),
     )
     // A little heavier than default, so the map glides to rest instead of
@@ -819,16 +611,16 @@ export function createLayout(
     as separate places rather than one mass; films push a little so a cluster is
     a spread rather than a rosette.
 
-    Neither placed map gets any. Repulsion acts along the line between two films,
-    and on both of these the nearest neighbour is almost always the next day — so
-    that line points along the time axis, and its horizontal component moves a film
-    to a date it was not watched on. That is not a cosmetic cost: the entire claim
-    of both maps is that x can be read as a date. Separation is left to
-    `forceCollide`, which cannot move two dots further apart than they actually
-    overlap. Omitted rather than set to zero: a zero-strength many-body force still
-    builds a quadtree on every tick.
+    The timeline gets none at all. Repulsion acts along the line between two films,
+    and on this map the nearest neighbour is almost always the next day — so that
+    line points along the calendar, and its horizontal component moves a film to a
+    date it was not watched on. That is not a cosmetic cost: the map's entire claim
+    is that x can be read as a date. Separation is left to `forceCollide`, which
+    cannot move two dots further apart than they actually overlap. Omitted rather
+    than set to zero: a zero-strength many-body force still builds a quadtree on
+    every tick.
   */
-  if (!placed) {
+  if (!thread) {
     simulation.force(
       "charge",
       forceManyBody<LayoutNode>().strength((node) => (node.kind === "hub" ? -820 : -110)),
@@ -888,12 +680,11 @@ export interface FitTransform {
  * Scale is capped at 1 so a library of five films is presented small and
  * precise rather than blown up into five enormous dots.
  *
- * The graticule rows are measured alongside the nodes, and have to be: a row spans
- * a whole calendar year — or, on the tree, the whole watch history — while the
- * films on it rarely reach either end, so framing the dots alone would push the
- * ends of every rule off the screen and leave the graticule cut off at both edges,
- * which reads as a rendering fault rather than as a map. The row labels in the left
- * margin are included for the same reason.
+ * The year rows are measured alongside the nodes, and have to be: a row spans a
+ * whole calendar year while the films on it rarely reach either end, so framing
+ * the dots alone would push January and December off the screen and leave the
+ * graticule cut off at both edges — which reads as a rendering fault rather than
+ * as a map. The year labels in the left margin are included for the same reason.
  *
  * Returned as plain numbers rather than a d3 transform: coordinates are this
  * module's business, but the zoom behaviour that owns them is not.
@@ -902,7 +693,7 @@ export function fitToFrame(
   nodes: readonly LayoutNode[],
   width: number,
   height: number,
-  rows: readonly MapRow[] = [],
+  rows: readonly YearRow[] = [],
 ): FitTransform {
   if (nodes.length === 0) return { k: 1, x: 0, y: 0 };
 
@@ -919,9 +710,8 @@ export function fitToFrame(
   }
 
   for (const row of rows) {
-    // A five-character decade at 8px is about 32px of tracked mono, and a
-    // four-digit year less; erring generous here costs a percent of scale, and
-    // erring short clips the label.
+    // A four-digit year at 8px is about 30px of tracked mono; erring generous
+    // here costs a percent of scale, and erring short clips the label.
     minX = Math.min(minX, row.left - YEAR_LABEL_GAP - 32);
     maxX = Math.max(maxX, row.right);
     minY = Math.min(minY, row.y - MONTH_TICK);

@@ -33,8 +33,7 @@ import { observe } from "@/domain/stats.ts";
 import { emptyLibrary } from "@/domain/types.ts";
 import { axesFor, resolveAxis, type AxisId } from "@/graph/axes.ts";
 import { buildGraph, groupCount } from "@/graph/build.ts";
-import { buildThread, unplaced } from "@/graph/thread.ts";
-import { buildTree } from "@/graph/tree.ts";
+import { buildThread, unthreaded } from "@/graph/thread.ts";
 import { download, exportMapPng } from "@/viz/exportImage.ts";
 import { importLetterboxdFiles, type ImportResult } from "@/import/letterboxd.ts";
 
@@ -116,17 +115,15 @@ export function Atlas() {
   const active = useMemo(() => resolveAxis(library, axis), [library, axis]);
 
   /*
-    The one place the three topologies diverge, and the whole reason a new one is
-    cheap to add. A thread, a tree and a hub map are the same `Graph` to everything
-    downstream — same node ids, so a film keeps its identity across a switch and can
-    be watched travelling from its place on the calendar into its decade cluster and
-    back.
+    The one place the two topologies diverge. A thread and a hub map are the same
+    `Graph` to everything downstream — same node ids, so a film keeps its identity
+    across a switch and can be watched travelling from its place on the calendar
+    into its decade cluster and back.
   */
-  const graph = useMemo(() => {
-    if (active.kind === "thread") return buildThread(library);
-    if (active.kind === "tree") return buildTree(library);
-    return buildGraph(library, active.strategy);
-  }, [library, active]);
+  const graph = useMemo(
+    () => (active.kind === "thread" ? buildThread(library) : buildGraph(library, active.strategy)),
+    [library, active],
+  );
   /*
     The observation follows the axis: the same set of facts, but the one that
     speaks to what is on screen is preferred. Nothing new becomes sayable, so
@@ -192,17 +189,11 @@ export function Atlas() {
   */
   const groups = groupCount(graph);
   /*
-    Films the map could not place. Named rather than left to be noticed: a scattered
-    band below the graticule is otherwise indistinguishable from a rendering fault,
-    and silently dropping them would understate the library.
-
-    The word changes with the shape because the reason does. A thread parks a film
-    only when it has no readable watch date, so "undated" is exact there; a tree also
-    parks one that has no release year, and calling *that* film undated would be a
-    small lie about a library the user knows better than the map does.
+    Films the thread could not place. Named rather than left to be noticed: the
+    scattered band outside the last turn is otherwise indistinguishable from a
+    rendering fault, and silently dropping them would understate the library.
   */
-  const parked = graph.shape === "hubs" ? 0 : unplaced(graph).length;
-  const parkedWord = graph.shape === "thread" ? "undated" : "unplaced";
+  const undated = graph.shape === "thread" ? unthreaded(graph).length : 0;
 
   /*
     The caption is composed here rather than inside the exporter, because what
@@ -231,9 +222,9 @@ export function Atlas() {
 
   const status = [
     `${films} films`,
-    // Every grouping names its own unit — hub, day, branch point — plain s on each.
+    // Every grouping names its own unit — hub, day — and each takes a plain s.
     `${groups} ${groups === 1 ? graph.groupKind : `${graph.groupKind}s`}`,
-    ...(parked > 0 ? [`${parked} ${parkedWord}`] : []),
+    ...(undated > 0 ? [`${undated} undated`] : []),
     usable ? "your library" : "demo library",
   ].join(" · ");
 

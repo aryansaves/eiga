@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import type { Film, FilmId, Library, WatchEvent } from "../domain/types.ts";
 import { groupCount, type Graph } from "./build.ts";
-import { buildThread, unplaced } from "./thread.ts";
+import { buildThread, unthreaded } from "./thread.ts";
 
 function film(id: string, year: number | null = 1999): Film {
   return { id, title: `Film ${id}`, year, uri: null, directors: [] };
@@ -168,7 +168,7 @@ test("an undated film is on the map but not on the thread", () => {
   );
 
   assert.deepEqual(
-    unplaced(graph).map((node) => node.id),
+    unthreaded(graph).map((node) => node.id),
     ["film:ghost"],
   );
 });
@@ -182,7 +182,7 @@ test("a film with no watch record at all is treated the same way", () => {
 
   assert.equal(graph.nodes.find((node) => node.id === "film:never")?.order, null);
   assert.equal(graph.edges.length, 0);
-  assert.deepEqual(unplaced(graph).map((node) => node.id), ["film:never"]);
+  assert.deepEqual(unthreaded(graph).map((node) => node.id), ["film:never"]);
 });
 
 test("a viewing of a film the library does not hold places no step", () => {
@@ -248,7 +248,7 @@ test("a real library's shape: n-1 edges over the films that have a date", () => 
   assert.equal(dated, 114);
   assert.equal(graph.edges.length, 113);
   assert.equal(walk(graph).length, 114);
-  assert.equal(unplaced(graph).length, 10);
+  assert.equal(unthreaded(graph).length, 10);
   assert.ok(groupCount(graph) < dated, "no day was shared");
 });
 
@@ -306,8 +306,8 @@ test("an unreadable date is treated as no date at all, on both fields", () => {
     assert.equal(node?.degree, 0, `${id} was threaded`);
   }
 
-  assert.deepEqual(graph.rows, [2023]);
-  assert.equal(unplaced(graph).length, 2);
+  assert.deepEqual(graph.years, [2023]);
+  assert.equal(unthreaded(graph).length, 2);
 });
 
 test("a link across a year boundary is its own kind of edge", () => {
@@ -353,7 +353,7 @@ test("a dormant year gets a row of its own", () => {
     ),
   );
 
-  assert.deepEqual(graph.rows, [2020, 2021, 2022, 2023]);
+  assert.deepEqual(graph.years, [2020, 2021, 2022, 2023]);
 });
 
 test("a very long dormant stretch is closed rather than drawn out", () => {
@@ -372,7 +372,7 @@ test("a very long dormant stretch is closed rather than drawn out", () => {
     ),
   );
 
-  assert.deepEqual(graph.rows, [1994, 2024]);
+  assert.deepEqual(graph.years, [1994, 2024]);
 
   // And the boundary: exactly three blank years is still drawn in full.
   const filled = buildThread(
@@ -381,12 +381,12 @@ test("a very long dormant stretch is closed rather than drawn out", () => {
       [seen("a", "2020-03-01"), seen("b", "2024-03-01")],
     ),
   );
-  assert.deepEqual(filled.rows, [2020, 2021, 2022, 2023, 2024]);
+  assert.deepEqual(filled.years, [2020, 2021, 2022, 2023, 2024]);
 });
 
 test("a hub map has no year rows to draw", () => {
   // Asserted from this side too: `years` is the timeline's, and a hub map that
   // carried one would have the layout drawing a calendar under a decade cluster.
   const graph = buildThread(library([]));
-  assert.deepEqual(graph.rows, []);
+  assert.deepEqual(graph.years, []);
 });

@@ -53,23 +53,17 @@ is discarded at the import edge.
 
 ### `src/graph` — derived structure
 
-| file        | lines | owns                                                                          |
-| ----------- | ----- | ----------------------------------------------------------------------------- |
-| `axes.ts`   | 160   | The axis registry: label, availability predicate, and grouping strategy.       |
-| `build.ts`  | 509   | `buildGraph()` — bipartite hub maps. Also the `Graph` type itself, and `byDecade`. |
-| `thread.ts` | 201   | `buildThread()` — the calendar timeline. Same `Graph` type, different shape.   |
-| `tree.ts`   | 269   | `buildTree()` — the discovery tree. Films hang from films; n−1 edges.          |
+| file       | lines | owns                                                                          |
+| ---------- | ----- | ----------------------------------------------------------------------------- |
+| `axes.ts`  | 134   | The axis registry: label, availability predicate, and grouping strategy.      |
+| `build.ts` | 469   | `buildGraph()` — bipartite hub maps. Also the `Graph` type itself, and `byDecade`. |
+| `thread.ts`| 197   | `buildThread()` — the calendar timeline. Same `Graph` type, different shape.   |
 
 `axes.ts` is where a new view is registered, and where an unusable one is withheld. Each
-axis carries `available(library)`, and [`axesFor`](../src/graph/axes.ts#L146) filters the
+axis carries `available(library)`, and [`axesFor`](../src/graph/axes.ts#L121) filters the
 list before the UI ever sees it. `decade` is `available: () => true`
-([axes.ts:118](../src/graph/axes.ts#L118)) — the floor that guarantees the returned array is
-never empty, so no caller needs an empty case. Order in the array is load-bearing:
-`resolveAxis` falls back to `options[0]`, so the first entry *is* the default view.
-
-`thread.ts` and `tree.ts` both join films directly to films, which the topology rule
-permits because both are linear in film count — a chain and a tree are each n−1 edges. See
-ADR-009 for the measurements the tree's branching rule was chosen on.
+([axes.ts:92](../src/graph/axes.ts#L92)) — the floor that guarantees the returned array is
+never empty, so no caller needs an empty case.
 
 ### `src/import` — the untrusted edge
 
@@ -90,17 +84,12 @@ name, location, bio — cannot reach a serialized library.
 
 | file             | lines | owns                                                                       |
 | ---------------- | ----- | -------------------------------------------------------------------------- |
-| `layout.ts`      | 944   | Force layout, the two graticule maps, `fitToFrame`. Pure: graph in, points out. |
-| `labels.ts`      | 240   | Collision-based label thinning. Decides *which* labels, not how they look.  |
+| `layout.ts`      | 734   | Force layout, timeline placement, `fitToFrame`. Pure: graph in, points out. |
+| `labels.ts`      | 240   | Collision-based label thinning. Decides *which* labels, not how they look. |
 | `exportImage.ts` | 186   | SVG → canvas → PNG blob, composed in-browser.                              |
 
-`layout.ts` is the largest file in the project and the most tested (1,004 test lines). It
+`layout.ts` is the largest file in the project and the most tested (713 test lines). It
 runs headless, which is the only reason layout can be verified at all.
-
-It holds three authored geometries, not one: the hub map's clusters, the diary timeline,
-and the discovery tree. The last two share a grammar — a fixed graticule of labelled rows,
-one axis carrying a literal meaning, position *within* a row left free for `forceCollide`
-— which is why `MapRow` is one type and not two.
 
 ### `src/components` — the UI
 
@@ -123,24 +112,17 @@ invariant 1.
 
 ### `Graph.shape` — one type, several topologies
 
-[`build.ts:128`](../src/graph/build.ts#L128) declares `shape: "hubs" | "thread" | "tree"`.
-All three builders return the same `Graph`, with the same node ids, so everything
-downstream — layout, labels, inspector, export, focus, search — is shape-agnostic, and an
-axis switch is watched as *travel* rather than as a redraw. `Atlas` branches on it exactly
-once:
+[`build.ts:115`](../src/graph/build.ts#L115) declares `shape: "hubs" | "thread"`. Both
+`buildGraph` and `buildThread` return the same `Graph`, with the same node ids, so
+everything downstream — layout, labels, inspector, export, focus, search — is
+shape-agnostic. `Atlas` branches on it exactly once:
 
 ```ts
-const graph = useMemo(() => {
-  if (active.kind === "thread") return buildThread(library);
-  if (active.kind === "tree") return buildTree(library);
-  return buildGraph(library, active.strategy);
-}, [library, active]);
+const graph = useMemo(
+  () => (active.kind === "thread" ? buildThread(library) : buildGraph(library, active.strategy)),
+  [library, active],
+);
 ```
-
-Adding the tree cost that branch, one `GraphEdgeKind`, one CSS rule and a layout case. That
-is the seam paying for itself — and `LINK_DISTANCE`/`LINK_STRENGTH` being
-`Record<GraphEdgeKind, number>` meant the compiler demanded the new kind be tuned rather
-than silently defaulting it.
 
 Because film node ids are stable across shapes, switching axes animates a film from its
 place on the calendar to its decade cluster instead of destroying and recreating it. **A new
@@ -326,7 +308,6 @@ to `3px`. Do not add per-component focus styles; the global rule already covers 
    `available(library)`, and a grouping `strategy`.
 2. If it is ordinal, chain its hubs with `spine` edges so the map stays one component.
 3. Add a test asserting `available` is false for a library that cannot support it.
-4. Mind the position: the first offered entry is the default view.
 
 Nothing in `AxisControl`, `Atlas`, or the layout needs to change — the control renders
 whatever `axesFor` returns.
@@ -339,9 +320,8 @@ resolve it. Return **film ids** (invariant 2). `FilterControl` needs no change.
 ### Add a topology
 
 1. Write a builder returning `Graph` with a new `shape` value.
-2. Add the value to the union at [build.ts:128](../src/graph/build.ts#L128).
+2. Add the value to the union at [build.ts:115](../src/graph/build.ts#L115).
 3. Branch in `Atlas`'s `graph` memo and in `layout.ts`.
-4. If films join films, check the edge count is linear — see ADR-009.
 
 If step 3 turns into steps 4 through 9, the `Graph` type is not carrying enough and should
 be extended rather than worked around.
