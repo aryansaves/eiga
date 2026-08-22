@@ -27,7 +27,7 @@ const ORIGIN = "https://eiga.pages.dev";
   and the guess is usually the first heading it finds. Repeating them here is not
   duplication; it is the only way the card says what the page says.
 */
-const TITLE = "EIGA — Your cinema, mapped.";
+const TITLE = "EIGA";
 const DESCRIPTION =
   "Turn your Letterboxd history into an interactive map of your movie taste. Processed entirely in your browser.";
 
