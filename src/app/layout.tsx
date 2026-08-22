@@ -75,8 +75,22 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    /*
+      A definite height, all the way down, and `h-full` rather than `min-h-full`
+      on purpose.
+
+      `main` is a flex column on a phone whose middle row is the map, and the map
+      asks for 100% of that row. A percentage height only resolves against an
+      ancestor chain that is definite — under `min-h-full` the chain never was, so
+      the request fell through to the SVG's intrinsic default and the map drew
+      itself 150px tall inside a 275px slot. Nothing looked broken; the map was
+      simply framed to the wrong box and opened at a hundredth of its right scale.
+
+      Costs nothing that `min-h-full` was buying: `main` is `overflow-hidden` at
+      both widths, so the page has never grown past one screen either way.
+    */
     <html lang="en" className="h-full">
-      <body className="bg-void text-paper flex min-h-full flex-col">
+      <body className="bg-void text-paper flex h-full flex-col">
         {children}
       </body>
     </html>

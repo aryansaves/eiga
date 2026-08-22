@@ -230,7 +230,29 @@ export function Atlas() {
 
   return (
     <main
-      className="relative flex-1 overflow-hidden"
+      /*
+        Two compositions of one tree.
+
+        Above `sm` the map is the page and the chrome is a caption over it: the
+        surface is `absolute inset-0`, the two bands float on top of it and fade
+        into it, and nothing has an edge. That is the composition the brief asks
+        for, and it needs room in order to be true — a caption over a map has to
+        leave the map visible underneath.
+
+        On a phone there is no such room, and pretending otherwise did not degrade
+        gracefully, it just lied. Measured at 375×812: the top band stood 475px
+        tall and the bottom 330px, which left eight pixels of map between them and
+        put the save control directly on top of the timeline. Both bands also
+        carry 80px of padding whose only job is to give the gradient somewhere to
+        fade, which on a phone is a tenth of the screen spent on a fade.
+
+        So below `sm` the same three children stop overlapping and become a flow
+        column — header, map, footer — the fade padding collapses to real
+        spacing, and the bands take a hairline edge because a band in flow has one
+        whether it is drawn or not. The map gets what is left, which is a little
+        under half the screen. Nothing overlaps because nothing is positioned.
+      */
+      className="relative flex flex-1 flex-col overflow-hidden sm:block"
       onDragOver={(event) => {
         event.preventDefault();
         setDropping(true);
@@ -247,58 +269,52 @@ export function Atlas() {
         if (files.length > 0) void load(files);
       }}
     >
-      {/*
-        The surface. On the front door there is no map to draw, so the graticule is
-        rendered on its own rather than as an empty `GraphView`: a map of zero films
-        would still announce itself to a screen reader as "Map of 0 films across 0
-        hub groups", and starting a force simulation in order to place nothing is
-        work that comes with a description worse than no description at all.
-      */}
       {landing ? (
-        <div className="eiga-grid absolute inset-0" />
-      ) : (
-        <div className="absolute inset-0">
-          <GraphView
-            graph={graph}
-            focusedId={focused}
-            onFocus={setFocusedId}
-            lit={lit}
-            /*
-              The search's own answer, not `lit`. A query names a film, so the view
-              can travel to it; a highlight chip lights a third of the library, which
-              has nowhere to travel. `GraphView.travel` explains why the two are
-              separate props rather than one.
-            */
-            travel={found}
-            surfaceRef={surfaceRef}
-          />
-        </div>
-      )}
+        /*
+          The front door. On the landing there is no map to draw, so the graticule
+          is rendered on its own rather than as an empty `GraphView`: a map of zero
+          films would still announce itself to a screen reader as "Map of 0 films
+          across 0 hub groups", and starting a force simulation in order to place
+          nothing is work that comes with a description worse than no description
+          at all.
 
-      {landing ? (
-        <Landing
-          onFiles={load}
-          onDemo={() => setDemoAsked(true)}
-          report={imported}
-          onReset={reset}
-        />
+          Both children are absolutely positioned, so the flow column above has no
+          in-flow content here and `flex-1` resolves to the whole free space —
+          which is what keeps this state one full-bleed screen at every width.
+        */
+        <>
+          <div className="eiga-grid absolute inset-0" />
+          <Landing
+            onFiles={load}
+            onDemo={() => setDemoAsked(true)}
+            report={imported}
+            onReset={reset}
+          />
+        </>
       ) : (
         <>
           {/*
-            Both bands wrap. `justify-between` holds the two columns apart at any
-            width that fits them, but below roughly 520px they stopped fitting and
-            the band is `overflow-hidden`, so the right-hand column was not merely
-            cramped — on a 375px screen it sat 130px past the edge, which put the
-            import control, the save control and the way back out of the demo all
-            off the display at once. Wrapping is a no-op above that width and the
-            difference between cramped and unreachable below it.
+            The instruments.
 
-            This is a safety fix, not a phone layout. What an atlas should do with a
-            screen too narrow to hold both the map and its instruments is a design
-            question, and guessing at it here would answer it badly.
+            A two-column grid at both widths, which is the one arrangement that
+            reads correctly at each without moving anything in the DOM: the free
+            column takes the identity and the controls, the hugging column takes
+            the acts. Above `sm` the acts span both rows and sit in the top-right
+            corner, exactly as they did when this was a `justify-between` flex row.
+            Below `sm` they sit beside the wordmark on the first line and the
+            controls span the full width underneath.
+
+            That last part is the whole reason for the grid. As a wrapping flex row
+            the right-hand column dropped *below* the left one on a narrow screen,
+            which is what turned 200px of chrome into 475px and pushed the save
+            control onto the map.
+
+            No `gap-y`: `AxisControl` opens with `mt-5` and the search and
+            highlight rows with `mt-3`, so the vertical rhythm is already stated
+            once, in the controls themselves.
           */}
-          <div className="from-void via-void/85 pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start justify-between gap-8 bg-linear-to-b to-transparent px-7 pt-7 pb-20 sm:px-12">
-            <div>
+          <div className="from-void via-void/85 border-rule pointer-events-none relative z-10 grid shrink-0 grid-cols-[1fr_auto] gap-x-6 border-b px-7 pt-7 pb-5 sm:absolute sm:inset-x-0 sm:top-0 sm:gap-x-8 sm:border-0 sm:bg-linear-to-b sm:to-transparent sm:px-12 sm:pb-20">
+            <div className="col-start-1 row-start-1">
               {/*
                 The same heading the landing carries, at caption size. An `h1` in
                 both states rather than a `p` here and an `h1` there: the inspector
@@ -307,19 +323,22 @@ export function Atlas() {
                 their outline is the kind of thing only a screen reader ever sees.
               */}
               <h1 className="eiga-mark text-paper text-sm">EIGA</h1>
-              <p className="eiga-annotation mt-2">Your cinema, mapped.</p>
-              <div className="pointer-events-auto">
-                <AxisControl options={options} active={active.id} onSelect={setAxis} />
-                <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
-                <FilterControl
-                  options={filters}
-                  active={highlights}
-                  onToggle={toggleHighlight}
-                />
-              </div>
+              {/*
+                Dropped on a phone, where this line would share 319px with the
+                wordmark and two controls. It is not lost: the landing sets it
+                directly under the wordmark at full size, and every visitor to a
+                loaded map has just come through there.
+              */}
+              <p className="eiga-annotation mt-2 max-sm:hidden">Your cinema, mapped.</p>
             </div>
-            <div className="pointer-events-auto flex flex-col items-end gap-4 text-right">
-              <ImportControl onFiles={load} />
+
+            {/*
+              The two acts. A row on a phone, where the grid gives them one line
+              beside the wordmark; a right-aligned stack above `sm`, which is the
+              corner they have always occupied.
+            */}
+            <div className="pointer-events-auto col-start-2 row-start-1 flex items-start gap-3 justify-self-end sm:row-span-2 sm:flex-col sm:items-end sm:gap-4 sm:text-right">
+              <ImportControl onFiles={load} hintClassName="max-sm:hidden" />
               {/*
                 The same hairline box as the import, and no quieter. It was an
                 unadorned line of annotation text on the grounds that saving is
@@ -345,10 +364,52 @@ export function Atlas() {
                     : "Save this map"}
               </button>
             </div>
+
+            <div className="pointer-events-auto col-span-2 col-start-1 row-start-2 sm:col-span-1">
+              <AxisControl options={options} active={active.id} onSelect={setAxis} />
+              <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
+              <FilterControl options={filters} active={highlights} onToggle={toggleHighlight} />
+            </div>
           </div>
 
-          <div className="from-void via-void/85 pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-8 bg-linear-to-t to-transparent px-7 pt-20 pb-7 sm:px-12">
-            <div className="pointer-events-auto">
+          {/*
+            The surface. Full-bleed above `sm`; the column's one flexible row
+            below it, where `min-h-0` is what lets it actually shrink — a flex item
+            defaults to its content's minimum size, and `GraphView` asks for 100%
+            of its parent, which without this resolves circularly in the map's
+            favour and pushes the footer off the screen.
+          */}
+          <div className="relative min-h-0 flex-1 sm:absolute sm:inset-0">
+            <GraphView
+              graph={graph}
+              focusedId={focused}
+              onFocus={setFocusedId}
+              lit={lit}
+              /*
+                The search's own answer, not `lit`. A query names a film, so the view
+                can travel to it; a highlight chip lights a third of the library, which
+                has nowhere to travel. `GraphView.travel` explains why the two are
+                separate props rather than one.
+              */
+              travel={found}
+              surfaceRef={surfaceRef}
+            />
+          </div>
+
+          <div className="from-void via-void/85 border-rule pointer-events-none relative z-10 flex shrink-0 flex-wrap items-end justify-between gap-6 border-t px-7 pt-5 pb-7 sm:absolute sm:inset-x-0 sm:bottom-0 sm:gap-8 sm:border-0 sm:bg-linear-to-t sm:to-transparent sm:px-12 sm:pt-20">
+            {/*
+              Given a fixed plate on a phone rather than being allowed to grow.
+
+              The museum label is the one piece of chrome whose height is decided by
+              the data — "Nothing selected" is two lines, a five-star film with a
+              review is ten — and in a flow column that height comes straight out of
+              the map's. `GraphView` reframes on every size change, so letting the
+              label grow would mean the map jumped and re-fitted each time a film was
+              tapped, which is the one gesture the whole screen exists to serve. A
+              fixed plate that scrolls keeps the map still; above `sm` the label
+              floats over the map and can be exactly as tall as it needs to be.
+            */}
+            <div className="pointer-events-auto max-sm:h-28 max-sm:w-full max-sm:overflow-y-auto">
               <Inspector
                 graph={graph}
                 library={library}
@@ -362,9 +423,22 @@ export function Atlas() {
               Allowed to shrink. It was `shrink-0` so the status line would never
               wrap mid-phrase, but refusing to shrink is how it left the viewport
               entirely — a wrapped status line is legible and an absent one is not.
+
+              Flush right in the corner it occupies above `sm`, flush left on a
+              phone, where it is a full-width row under the label and ranging it
+              right would leave it hanging off the end of nothing.
             */}
-            <div className="pointer-events-auto text-right">
-              <p className="eiga-annotation">{status}</p>
+            <div className="pointer-events-auto text-right max-sm:w-full max-sm:text-left">
+              {/*
+                `text-balance` because this line is composed, not written, so its
+                length is a property of the library and cannot be checked once.
+                Measured at 375px it wrapped to `37 films · 29 days · 4 undated ·`
+                then `library` — a single orphaned word, and on the default axis,
+                because Watch dates is the only one that can add an `undated`
+                clause. Balancing splits it evenly instead of leaving the tail
+                behind. Above `sm` it fits on one line and this does nothing.
+              */}
+              <p className="eiga-annotation text-balance">{status}</p>
               <p className="eiga-annotation mt-1.5">Nothing leaves this browser</p>
               {/*
                 One corner answers "how do I get out of this library", in both
@@ -393,8 +467,10 @@ export function Atlas() {
         </>
       )}
 
+      {/* Above the bands, which are now explicitly at `z-10` so that moving the
+          header ahead of the map in the DOM cannot let the map paint over it. */}
       {dropping && (
-        <div className="border-signal/30 pointer-events-none absolute inset-5 flex items-center justify-center border">
+        <div className="border-signal/30 pointer-events-none absolute inset-5 z-20 flex items-center justify-center border">
           <p className="eiga-mark text-signal text-xs">Release to read</p>
         </div>
       )}

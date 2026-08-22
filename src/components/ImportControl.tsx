@@ -23,6 +23,14 @@
  * landing block, where everything is flush left — and a component that pinned
  * `text-right` internally would have to be told which context it was in. The
  * caller already knows, because the caller is the one that positioned it.
+ *
+ * `hintClassName` is the same principle applied to whether the subtitle is shown
+ * at all. On the landing it always is: that screen exists to explain what to hand
+ * over, and it has a full column to do it in. In the corner of a loaded map on a
+ * phone the control is 78px wide in a shared row, and a five-word line under it
+ * wraps to four — so the caller that put it there hides it, and the caller that
+ * gave it a column does not. A boolean could not express this, because the same
+ * instance needs it at one width and not at another.
  */
 
 import type { ImportResult } from "@/import/letterboxd.ts";
@@ -32,8 +40,10 @@ const MAX_LISTED = 40;
 
 export function ImportControl({
   onFiles,
+  hintClassName = "",
 }: {
   readonly onFiles: (files: readonly File[]) => void;
+  readonly hintClassName?: string;
 }) {
   return (
     <div>
@@ -61,7 +71,9 @@ export function ImportControl({
           }}
         />
       </label>
-      <p className="eiga-annotation mt-2.5">your export .zip · or the CSVs inside it</p>
+      <p className={`eiga-annotation mt-2.5 ${hintClassName}`}>
+        your export .zip · or the CSVs inside it
+      </p>
     </div>
   );
 }

@@ -666,6 +666,27 @@ export function endpoint(value: string | LayoutNode): LayoutNode | null {
  */
 export const FRAME_INSET = { top: 96, right: 76, bottom: 132, left: 76 };
 
+/** The four edges of a frame. Named so the two insets cannot drift apart. */
+export interface FrameInset {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+/**
+ * The same idea for a frame with nothing floating in it.
+ *
+ * Below `sm` the chrome is a header and a footer in flow rather than two bands
+ * over the map, so there is no caption to keep clear of and every pixel the
+ * asymmetric inset reserves is simply thrown away. It was: on a 375×304 map slot
+ * the desktop inset frames the graph into 223×76, which is a fifth of the width
+ * and a quarter of the height it was given, and the whole library then opens as a
+ * thumbnail with no title on it. Symmetric, and small enough to read as a margin
+ * rather than as reserved space.
+ */
+export const FRAME_INSET_BARE = { top: 24, right: 24, bottom: 24, left: 24 };
+
 export interface FitTransform {
   readonly k: number;
   readonly x: number;
@@ -686,6 +707,11 @@ export interface FitTransform {
  * graticule cut off at both edges — which reads as a rendering fault rather than
  * as a map. The year labels in the left margin are included for the same reason.
  *
+ * `inset` is a parameter rather than the constant it used to read directly,
+ * because how much room the chrome takes is a fact about the layout it is drawn
+ * in and not about the graph. The caller knows which of the two it is showing;
+ * this function stays a pure measurement either way.
+ *
  * Returned as plain numbers rather than a d3 transform: coordinates are this
  * module's business, but the zoom behaviour that owns them is not.
  */
@@ -694,6 +720,7 @@ export function fitToFrame(
   width: number,
   height: number,
   rows: readonly YearRow[] = [],
+  inset: FrameInset = FRAME_INSET,
 ): FitTransform {
   if (nodes.length === 0) return { k: 1, x: 0, y: 0 };
 
@@ -718,8 +745,8 @@ export function fitToFrame(
     maxY = Math.max(maxY, row.y + MONTH_TICK);
   }
 
-  const usableWidth = Math.max(width - FRAME_INSET.left - FRAME_INSET.right, 1);
-  const usableHeight = Math.max(height - FRAME_INSET.top - FRAME_INSET.bottom, 1);
+  const usableWidth = Math.max(width - inset.left - inset.right, 1);
+  const usableHeight = Math.max(height - inset.top - inset.bottom, 1);
   const k = Math.min(
     1,
     usableWidth / Math.max(maxX - minX, 1),
@@ -728,7 +755,7 @@ export function fitToFrame(
 
   return {
     k,
-    x: FRAME_INSET.left + usableWidth / 2 - k * ((minX + maxX) / 2),
-    y: FRAME_INSET.top + usableHeight / 2 - k * ((minY + maxY) / 2),
+    x: inset.left + usableWidth / 2 - k * ((minX + maxX) / 2),
+    y: inset.top + usableHeight / 2 - k * ((minY + maxY) / 2),
   };
 }

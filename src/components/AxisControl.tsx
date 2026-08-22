@@ -54,8 +54,16 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
             fit on one line, and the band this sits in is `overflow-hidden`, so the
             row did not scroll — the last axis was simply cut in half. `gap-3`
             already supplies the row gap, so wrapping costs no extra rule.
+
+            `min-w-0 flex-1` is what makes it wrap *well*. Left at its automatic
+            basis the group is as wide as all five labels laid end to end, which no
+            narrow screen can hold — so the outer flex moved the whole group onto a
+            line of its own beneath the legend, and then wrapped it again inside.
+            Three lines to say five words, one of which was "Axis". Allowed to
+            shrink, the group starts on the legend's line and takes two. Above `sm`
+            everything fits on one line and this changes nothing.
           */
-          className="flex flex-wrap items-center gap-3"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-3"
         >
           {options.map((axis) => {
             const selected = axis.id === active;

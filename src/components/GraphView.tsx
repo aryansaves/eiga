@@ -53,15 +53,32 @@ import {
   endpoint,
   filmRadius,
   fitToFrame,
+  FRAME_INSET,
+  FRAME_INSET_BARE,
   hubRadius,
   MONTH_TICK,
   positionsOf,
   settle,
   YEAR_LABEL_GAP,
   YEAR_WIDTH,
+  type FrameInset,
   type LayoutHandle,
   type Position,
 } from "@/viz/layout.ts";
+
+/**
+ * The width at which the chrome stops overlaying the map and starts framing it.
+ *
+ * This is Tailwind's `sm` breakpoint, and it is duplicated here on purpose: it is
+ * the one fact the visualization needs about a layout decision made in CSS. Above
+ * it `Atlas` floats two caption bands over a full-bleed map and `FRAME_INSET`
+ * keeps the graph clear of them; below it the same bands are a header and a footer
+ * in flow, nothing is over the map, and reserving that room throws away four
+ * fifths of the frame.
+ *
+ * If the `sm:` prefixes in `Atlas` ever move, this moves with them.
+ */
+const OVERLAY_MIN_WIDTH = 640;
 
 /**
  * How far the zoom must move before the labels are chosen again, as a log ratio.
@@ -121,6 +138,17 @@ function wrapPath(from: Position, to: Position): string {
 interface Viewport {
   readonly width: number;
   readonly height: number;
+}
+
+/**
+ * Which frame the map is being drawn into.
+ *
+ * Keyed on the map's own measured width rather than the window's, because the map
+ * is what the inset is about — and because `size` is already measured here, so
+ * this asks no new question of the DOM.
+ */
+function insetFor(viewport: Viewport): FrameInset {
+  return viewport.width >= OVERLAY_MIN_WIDTH ? FRAME_INSET : FRAME_INSET_BARE;
 }
 
 type ElementState = "rest" | "anchor" | "near" | "far";
@@ -383,7 +411,13 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
 
     // The whole handle rather than its nodes, because a year row is part of the
     // extent the map has to be framed to and is not a node — see `fitToFrame`.
-    const fit = fitToFrame(layout.nodes, viewport.width, viewport.height, layout.rows);
+    const fit = fitToFrame(
+      layout.nodes,
+      viewport.width,
+      viewport.height,
+      layout.rows,
+      insetFor(viewport),
+    );
     behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
   };
 
@@ -594,7 +628,7 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
       one enormous dot filling the screen — a single film's extent is some 13px
       across, so the uncapped fit would be about 90×.
     */
-    const fit = fitToFrame(matches, viewport.width, viewport.height);
+    const fit = fitToFrame(matches, viewport.width, viewport.height, [], insetFor(viewport));
     behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
   }, [travel]);
 
