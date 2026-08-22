@@ -9,6 +9,13 @@ next-env.d.ts
 # Vercel
 .vercel/
 
+# Cloudflare. `wrangler.jsonc` is tracked — it is the deploy contract. These are
+# per-machine: `.wrangler/` is a local dev cache, and `.dev.vars` is wrangler's
+# secrets file, which its Next.js auto-config creates unasked.
+.wrangler/
+.dev.vars
+.dev.vars.*
+
 # Testing / coverage
 coverage/
 playwright-report/
