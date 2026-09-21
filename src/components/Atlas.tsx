@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
 import { AxisControl } from "@/components/AxisControl.tsx";
 import { FilterControl } from "@/components/FilterControl.tsx";
@@ -330,7 +331,19 @@ export function Atlas() {
                 something above it, and two states of one page disagreeing about
                 their outline is the kind of thing only a screen reader ever sees.
               */}
-              <h1 className="eiga-mark text-paper text-sm">EIGA</h1>
+              <h1 className="text-sm">
+                <Link
+                  href="/"
+                  aria-label="EIGA home"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    reset();
+                  }}
+                  className="eiga-mark text-paper hover:text-signal pointer-events-auto transition-colors"
+                >
+                  EIGA
+                </Link>
+              </h1>
               {/*
                 Dropped on a phone, where this line would share 319px with the
                 wordmark and two controls. It is not lost: the landing sets it

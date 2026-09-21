@@ -553,27 +553,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
     applyNames();
   }, [lit]);
 
-  // Following the journey keeps the selected viewing and its neighbours in view.
-  useLayoutEffect(() => {
-    if (graph.shape !== "thread" || !focusedId) return;
-    const svg = svgRef.current;
-    const behaviour = zoomRef.current;
-    const layout = layoutRef.current;
-    const viewport = sizeRef.current;
-    if (!svg || !behaviour || !layout || !viewport) return;
-    const index = layout.nodes.findIndex((node) => node.id === focusedId);
-    if (index < 0) return;
-    const nearby = layout.nodes.slice(Math.max(0, index - 1), index + 2);
-    const inset = insetFor(viewport);
-    const fit = fitToFrame(nearby, viewport.width, viewport.height, [], {
-      ...inset, top: inset.top + 20, bottom: inset.bottom + 24,
-    });
-    exploredRef.current = true;
-    beforeTravelRef.current = null;
-    behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
-    applyNames();
-  }, [focusedId, graph, layoutWidth, layoutHeight]);
-
   const neighbours = useMemo(
     () => (focusedId ? neighboursOf(graph, focusedId) : null),
     [graph, focusedId],
