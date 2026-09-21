@@ -54,6 +54,9 @@ export const metadata: Metadata = {
     the width, height and type that some scrapers use to decide whether to fetch
     at all — with the absolute URL resolved through `metadataBase`.
   */
+  verification: {
+    google: "google56f4143b71f28eed.html"
+  },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
