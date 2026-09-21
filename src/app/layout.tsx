@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     at all — with the absolute URL resolved through `metadataBase`.
   */
   verification: {
-    google: "google56f4143b71f28eed.html"
+    google: "H_zjVGoGKD6hl7smyrCc8WOQLSFCPjdAfNxVssaD_w0"
   },
   twitter: {
     card: "summary_large_image",
