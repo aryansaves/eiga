@@ -98,15 +98,8 @@ test("no two titles the map shows overlap, at any zoom", () => {
   }
 });
 
-test("a hub's name and a year label are never printed over", () => {
-  /*
-    Structure is seeded into the occupied list before any film, so this is the
-    same invariant as above but across the two kinds of label the map draws
-    unconditionally. Checked on both topologies, since a hub map has hub labels
-    and no year rows and the timeline has the reverse — and both are in the
-    guarded set, or the timeline half of this test would assert nothing.
-  */
-  for (const graph of [buildThread(crowded()), buildGraph(crowded(), byDecade)]) {
+test("a hub's name is never printed over", () => {
+  for (const graph of [buildGraph(crowded(), byDecade)]) {
     const layout = createLayout(graph, WIDTH, HEIGHT);
     settle(layout.simulation);
 

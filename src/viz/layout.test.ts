@@ -10,7 +10,7 @@ import {
   type Library,
   type WatchEvent,
 } from "../domain/types.ts";
-import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs, type GraphNode } from "../graph/build.ts";
+import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs } from "../graph/build.ts";
 import { buildThread, unthreaded } from "../graph/thread.ts";
 import {
   clusterReach,
@@ -19,8 +19,6 @@ import {
   FRAME_INSET,
   positionsOf,
   settle,
-  YEAR_LABEL_GAP,
-  YEAR_WIDTH,
   type LayoutEdge,
   type LayoutNode,
 } from "./layout.ts";
@@ -404,156 +402,52 @@ function dayString(n: number): string {
   return new Date(Date.UTC(2023, 0, 1) + n * 8 * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** A settled timeline, and the exact place the calendar asked each film to sit. */
+/** A settled winding journey. */
 function timeline(library: Library = diaryLibrary()) {
   const graph = buildThread(library);
   const layout = createLayout(graph, WIDTH, HEIGHT);
   settle(layout.simulation);
-
-  const rowFor = new Map(layout.rows.map((row) => [row.year, row]));
-  /**
-   * Where the calendar put a film, before the forces had their say.
-   *
-   * Recomputed from `when` rather than read off `anchorX`, deliberately: `anchorX`
-   * is what the layout decided, and a test that measured a settled map against the
-   * layout's own decision would pass however wrong that decision was. This is the
-   * arithmetic the *map* claims — left edge plus fraction of a year — written out
-   * independently.
-   */
-  const ideal = (node: GraphNode) => {
-    if (node.when === null) return null;
-    const row = rowFor.get(node.when.year);
-    if (row === undefined) return null;
-    return { x: row.left + node.when.through * YEAR_WIDTH, y: row.y };
-  };
-
-  return { graph, layout, rowFor, ideal };
+  return { graph, layout };
 }
 
-/** How many pixels one day of the calendar is worth, for reporting drift. */
-const DAY_PX = YEAR_WIDTH / 365;
-
-test("the rows are the calendar: one per year, oldest at the top, all the same span", () => {
+test("the winding journey replaces calendar rows with chronological stops", () => {
   const { graph, layout } = timeline();
+  assert.deepEqual(layout.rows, []);
+  const orders = graph.nodes
+    .filter((node) => node.order !== null)
+    .map((node) => node.order);
+  assert.deepEqual(orders, [...orders].sort((a, b) => a! - b!));
+});
 
-  assert.deepEqual(
-    layout.rows.map((row) => row.year),
-    [2023, 2024, 2025],
-    "the diary spans three years, so it should carry three rows",
-  );
-  assert.deepEqual(layout.rows.map((row) => row.year), [...graph.years]);
+test("longer gaps get more room along the journey", () => {
+  const films: Film[] = ["a", "b", "c"].map((id) => ({
+    id, title: id.toUpperCase(), year: 2024, uri: null, directors: [],
+  }));
+  const graph = buildThread({
+    films,
+    watches: [
+      { filmId: "a", watchedOn: "2024-01-01", rewatch: false },
+      { filmId: "b", watchedOn: "2024-01-02", rewatch: false },
+      { filmId: "c", watchedOn: "2024-06-01", rewatch: false },
+    ],
+    ratings: new Map(), reviews: new Map(), likes: new Set(),
+  });
+  const layout = createLayout(graph, WIDTH, HEIGHT);
+  const dated = layout.nodes.filter((node) => node.order !== null);
+  const distance = (a: LayoutNode, b: LayoutNode) => Math.hypot(a.x - b.x, a.y - b.y);
+  assert.ok(distance(dated[1], dated[2]) > distance(dated[0], dated[1]));
+});
 
-  for (let i = 1; i < layout.rows.length; i += 1) {
-    assert.ok(
-      layout.rows[i].y > layout.rows[i - 1].y,
-      `${layout.rows[i].year} is drawn above ${layout.rows[i - 1].year}`,
-    );
-  }
-
-  /*
-    Every row starts and ends at the same x, and that is the whole reason the years
-    are stacked rather than run end to end: it is what puts February under February
-    in every row. A row scaled to the films it happens to hold would look tidier and
-    would make the columns mean nothing.
-  */
-  for (const row of layout.rows) {
-    assert.equal(row.left, layout.rows[0].left);
-    assert.equal(row.right, layout.rows[0].left + YEAR_WIDTH);
-    assert.equal(row.months.length, 12);
-    assert.equal(row.months[0], row.left, "January starts at the left end of the row");
-  }
-
-  /*
-    And the month ticks line up across rows to within a leap day — which is the
-    honest limit, not a tolerance for sloppiness. 2024 has a 29th of February, so
-    every tick after it sits a day earlier in fractional terms than in 2023. Held
-    to two days' width so a regression to even twelfths, which is out by five, fails.
-  */
-  for (const row of layout.rows) {
-    for (let month = 0; month < 12; month += 1) {
-      const drift = Math.abs(row.months[month] - layout.rows[0].months[month]);
-      assert.ok(
-        drift < 2 * DAY_PX,
-        `month ${month + 1} of ${row.year} is ${(drift / DAY_PX).toFixed(1)} days out of column`,
-      );
-    }
+test("journey stops stay fixed to the authored winding path", () => {
+  const { layout } = timeline();
+  settle(layout.simulation);
+  for (const node of layout.nodes.filter((candidate) => candidate.order !== null)) {
+    assert.equal(node.x, node.fx);
+    assert.equal(node.y, node.fy);
   }
 });
 
-/*
-  The claim the whole map rests on, and the one the spiral it replaced could not
-  make: a film's horizontal position *is* the day it was watched. Everything else
-  here — the graticule, the row stack, the month ticks — is only meaningful if this
-  holds on a settled map rather than on the anchors.
-*/
-test("a film settles on the day it was watched, not merely near it", () => {
-  const { graph, layout, ideal } = timeline();
-  const at = new Map(layout.nodes.map((node) => [node.id, node]));
-
-  let worst = { off: 0, id: "" };
-  let total = 0;
-  let counted = 0;
-  for (const node of graph.nodes) {
-    const target = ideal(node);
-    if (target === null) continue;
-    const settled = at.get(node.id);
-    assert.ok(settled, `${node.id} was not laid out`);
-    const off = Math.abs(settled.x - target.x);
-    if (off > worst.off) worst = { off, id: node.id };
-    total += off;
-    counted += 1;
-  }
-
-  assert.equal(counted, 114);
-  /*
-    Two days is the bar because a week is the unit the map is read in: a film pushed
-    a week sideways by its neighbours has changed which part of a month it belongs
-    to, and the reader has no way to know. Not a fitted number — the drift lands well
-    inside this — but recorded so that loosening `PLACE_PULL_X`, or letting a
-    many-body force back onto this map, fails here rather than being noticed by eye
-    a year later.
-  */
-  assert.ok(
-    worst.off < 2 * DAY_PX,
-    `${worst.id} settled ${(worst.off / DAY_PX).toFixed(1)} days from the date it was watched`,
-  );
-  assert.ok(
-    total / counted < DAY_PX,
-    `films average ${(total / counted / DAY_PX).toFixed(2)} days off their date`,
-  );
-});
-
-test("no film settles nearer another year's row than its own", () => {
-  /*
-    The timeline's version of "beside its own hub". Height inside a row is free —
-    it is how a binge opens out into something legible — but only up to the point
-    where a film is nearer the row above or below, at which point the map has
-    quietly moved it to a different year. Measured as the nearest row rather than as
-    a distance, because that is what the reader actually does.
-  */
-  const { graph, layout, ideal } = timeline();
-  const at = new Map(layout.nodes.map((node) => [node.id, node]));
-
-  for (const node of graph.nodes) {
-    if (node.when === null) continue;
-    const settled = at.get(node.id);
-    const target = ideal(node);
-    if (!settled || target === null) continue;
-
-    let nearest = { year: 0, distance: Infinity };
-    for (const row of layout.rows) {
-      const distance = Math.abs(settled.y - row.y);
-      if (distance < nearest.distance) nearest = { year: row.year, distance };
-    }
-    assert.equal(
-      nearest.year,
-      node.when.year,
-      `${node.id} was watched in ${node.when.year} but settled nearest the ${nearest.year} row`,
-    );
-  }
-});
-
-test("films with no date sit below the calendar, not inside it", () => {
+test("films with no date sit below the journey, not inside it", () => {
   /*
     They have to be somewhere, and every position inside the calendar means a date.
     Below the last row is the only placement that does not assert something false —
@@ -583,42 +477,15 @@ test("a hub map carries no year rows", () => {
   assert.deepEqual(layout.rows, []);
 });
 
-test("framing keeps January and December on screen", () => {
-  /*
-    The reason `fitToFrame` takes the rows at all. Films rarely reach either end of
-    a year, so framing the dots alone would leave the graticule running off both
-    edges — and a rule cut off at the edge of the viewport reads as a rendering
-    fault, not as a map. The year labels in the left margin are in the same claim.
-  */
+test("framing keeps the complete journey on screen", () => {
   const { layout } = timeline();
-  const fit = fitToFrame(layout.nodes, WIDTH, HEIGHT, layout.rows);
-  const onScreen = (x: number) => fit.x + fit.k * x;
-
-  const row = layout.rows[0];
-  assert.ok(onScreen(row.left - YEAR_LABEL_GAP) > 0, "the year labels are off the left edge");
-  assert.ok(onScreen(row.right) < WIDTH, "December runs off the right edge");
-
-  /*
-    And it opens at 1×, which is what `YEAR_WIDTH` was chosen for rather than a
-    happy accident: `labels.ts` prints nothing below 0.5×, so a three-year diary
-    opening at full scale is a map that opens *with titles on it*. The straight
-    single-row ribbon this replaced ran to some 2,600px and opened at 0.49×.
-  */
-  assert.equal(fit.k, 1, "a three-year diary should open at full scale");
-
-  /*
-    That cap is also why the rows' effect on the frame has to be measured somewhere
-    the scale is free to move. Squeezed into a narrow window the rows are what sets
-    the width — if these ever came out equal the rows would be having no effect and
-    the assertions above would be passing by luck.
-  */
-  const narrow = 700;
-  const withRows = fitToFrame(layout.nodes, narrow, HEIGHT, layout.rows);
-  const dotsOnly = fitToFrame(layout.nodes, narrow, HEIGHT);
-  assert.ok(
-    withRows.k < dotsOnly.k,
-    `the rows did not widen the frame (${withRows.k.toFixed(3)} vs ${dotsOnly.k.toFixed(3)} for the dots alone)`,
-  );
+  const fit = fitToFrame(layout.nodes, WIDTH, HEIGHT);
+  for (const node of layout.nodes) {
+    const x = fit.x + fit.k * node.x;
+    const y = fit.y + fit.k * node.y;
+    assert.ok(x >= FRAME_INSET.left && x <= WIDTH - FRAME_INSET.right);
+    assert.ok(y >= FRAME_INSET.top && y <= HEIGHT - FRAME_INSET.bottom);
+  }
 });
 
 test("framing one search match centres it without magnifying it", () => {
@@ -670,13 +537,7 @@ test("framing one search match centres it without magnifying it", () => {
   );
 });
 
-test("a single-year library still gets a full row", () => {
-  /*
-    The degenerate case, and the one most libraries actually are for their first
-    year. One row is a legitimate map — a year is a scale whether or not there is
-    another to compare it to — so the row must still span the whole calendar rather
-    than shrink to the films on it.
-  */
+test("a single-year library still gets a complete journey", () => {
   const library = diaryLibrary();
   const within = {
     ...library,
@@ -686,8 +547,8 @@ test("a single-year library still gets a full row", () => {
   const layout = createLayout(buildThread(within), WIDTH, HEIGHT);
   settle(layout.simulation);
 
-  assert.deepEqual(layout.rows.map((row) => row.year), [2023]);
-  assert.equal(layout.rows[0].right - layout.rows[0].left, YEAR_WIDTH);
+  assert.deepEqual(layout.rows, []);
+  assert.ok(layout.nodes.some((node) => node.order !== null));
   assert.ok(
     fitToFrame(layout.nodes, WIDTH, HEIGHT, layout.rows).k <= 1,
     "a one-row map should not be blown up past 1×",

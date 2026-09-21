@@ -99,6 +99,8 @@ async function rasterise(
   width: number,
   height: number,
   caption: string,
+  background: string,
+  captionColor: string,
 ): Promise<HTMLCanvasElement> {
   const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
   try {
@@ -121,11 +123,11 @@ async function rasterise(
     context.scale(PIXEL_SCALE, PIXEL_SCALE);
     // The scrims and the page background are HTML, not part of the SVG, so the
     // base colour is painted here rather than inherited.
-    context.fillStyle = token("--color-void") || "#101114";
+    context.fillStyle = background;
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
 
-    context.fillStyle = token("--color-paper-dim") || "#6b6f73";
+    context.fillStyle = captionColor;
     context.font = `${CAPTION_SIZE}px ${token("--font-mono") || "monospace"}`;
     // Tracking to match `.eiga-annotation`; ignored by engines that lack it,
     // which costs the caption nothing but a little tightness.
@@ -166,6 +168,8 @@ export async function exportMapPng(
     width,
     height,
     options.caption,
+    token("--color-void") || "#101114",
+    token("--color-paper-dim") || "#6b6f73",
   );
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));

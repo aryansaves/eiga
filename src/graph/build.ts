@@ -54,37 +54,14 @@ export interface GraphNode {
   readonly rating: number | null;
   /** Members for a hub; connection count for a film. */
   readonly degree: number;
-  /**
-   * Position along an ordered scale, when the node sits on one.
-   *
-   * On a hub map this is the hub's place on its axis, carried here so the layout
-   * can order hubs by the axis's own scale instead of inferring it from the id —
-   * `hub:rating:5` sorts *after* `hub:rating:45` as a string, which would put
-   * half a star between four and a half and five.
-   *
-   * On the diary thread it is the *step index* of a film: which distinct watch
-   * day it belongs to, counting from the first. Films seen on the same day share
-   * a step, which is what makes a binge one knot rather than several. Null means
-   * the node sits on no scale — the unplaced hub, or a film with no watch date.
-   *
-   * Reading order, not position: {@link when} is what the timeline is drawn from.
-   */
+  /** Hub scale position, or chronological viewing index on the journey. */
   readonly order: number | null;
-  /**
-   * Where the film falls on the calendar, for the topology that plots one.
-   *
-   * Separate from {@link order} because they answer different questions and only
-   * one of them is a place. `order` says a film was the fortieth distinct day of
-   * viewing; `when` says that day was the 3rd of June 2023. The thread used to
-   * plot `order` directly and it flattened the calendar: two films a day apart
-   * and two films three months apart sat the same distance from each other, so
-   * the map could not show a dormant spring, which is half of what "what has my
-   * watching been like" means.
-   *
-   * Null on every hub node, on a hub map's films, and on any film whose watch
-   * date is missing or unreadable — see `domain/calendar.ts`.
-   */
   readonly when: CalendarPoint | null;
+  /** Viewing details exist only on dated journey stops. */
+  readonly watchedOn?: string;
+  readonly rewatch?: boolean;
+  readonly gapDays?: number;
+  readonly milestone?: string;
 }
 
 /**
@@ -115,22 +92,10 @@ export interface Graph {
   readonly shape: "hubs" | "thread";
   /**
    * What one grouping stands for: a hub on a hub map ("decade", "director"), or
-   * one step of the thread ("day").
+   * one stop of the thread ("viewing").
    */
   readonly groupKind: string;
-  /**
-   * Every calendar year the diary timeline draws a row for, ascending. Empty on
-   * a hub map, which has no chronology to lay out.
-   *
-   * The year *list*, not the years films happen to fall in: a dormant year in the
-   * middle of a viewing life gets a row of its own, because two adjacent rows
-   * labelled 2019 and 2023 would quietly claim the map covers four years of
-   * watching when it covers two. See `buildThread` for the one bound on that.
-   *
-   * Not derivable from the nodes. A film carries the year it was *released* and
-   * the year it was *seen*, and the second only where a date could be read; the
-   * span of the map is a fact about the library, not about any one film.
-   */
+  /** Years represented by dated viewings; empty on hub maps. */
   readonly years: readonly number[];
 }
 

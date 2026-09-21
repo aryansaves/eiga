@@ -58,6 +58,11 @@ export function Inspector({
   const node = focusedId
     ? (graph.nodes.find((candidate) => candidate.id === focusedId) ?? null)
     : null;
+  const journey = graph.shape === "thread";
+  const stops = journey ? graph.nodes.filter((stop) => stop.order !== null) : [];
+  const stopIndex = stops.findIndex((stop) => stop.id === node?.id);
+  const previous = stops[stopIndex - 1];
+  const next = stops[stopIndex + 1];
 
   if (!node) {
     return (
@@ -71,7 +76,12 @@ export function Inspector({
             Nothing selected.
           </p>
         )}
-        <Meta>Select a film or a group</Meta>
+        <Meta>{journey ? "One stop per viewing · rings mark rewatches" : "Select a film or a group"}</Meta>
+        {journey && stops[0] && (
+          <button className="eiga-button mt-3" type="button" onClick={() => onFocus(stops[0].id)}>
+            Follow your journey
+          </button>
+        )}
       </div>
     );
   }
@@ -117,8 +127,10 @@ export function Inspector({
   const facts = [
     detail.film.year === null ? null : String(detail.film.year),
     detail.film.directors.length > 0 ? detail.film.directors.join(", ") : null,
-    detail.watchedOn === null ? null : `Seen ${detail.watchedOn}`,
-    detail.rewatchCount > 0
+    journey
+      ? node.watchedOn ? `${node.rewatch ? "Rewatched" : "Seen"} ${node.watchedOn}` : "Watch date unknown"
+      : detail.watchedOn === null ? null : `Seen ${detail.watchedOn}`,
+    !journey && detail.rewatchCount > 0
       ? `${detail.rewatchCount} ${detail.rewatchCount === 1 ? "rewatch" : "rewatches"}`
       : null,
   ].filter((fact): fact is string => fact !== null);
@@ -130,6 +142,21 @@ export function Inspector({
       </h2>
 
       <Meta>{facts.join(" · ")}</Meta>
+
+      {journey && stopIndex >= 0 && (
+        <div className="mt-3">
+          <p className="eiga-annotation">
+            Stop {stopIndex + 1} of {stops.length}
+            {(node.gapDays ?? 0) > 1 ? ` · ${node.gapDays} days since the previous log` : ""}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button type="button" className="eiga-button" disabled={!previous}
+              onClick={() => previous && onFocus(previous.id)}>Previous</button>
+            <button type="button" className="eiga-button" disabled={!next}
+              onClick={() => next && onFocus(next.id)}>Next</button>
+          </div>
+        </div>
+      )}
 
       {detail.rating !== null && (
         <div className="mt-4">

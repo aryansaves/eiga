@@ -26,6 +26,7 @@ import { ImportControl, ImportReport } from "@/components/ImportControl.tsx";
 import { Inspector } from "@/components/Inspector.tsx";
 import { Landing } from "@/components/Landing.tsx";
 import { SearchControl } from "@/components/SearchControl.tsx";
+import { ThemeControl } from "@/components/ThemeControl.tsx";
 import { demoLibrary } from "@/domain/demo.ts";
 import { filtersFor, narrow, type FilterId } from "@/domain/filters.ts";
 import { searchFilms } from "@/domain/search.ts";
@@ -33,7 +34,7 @@ import { observe } from "@/domain/stats.ts";
 import { emptyLibrary } from "@/domain/types.ts";
 import { axesFor, resolveAxis, type AxisId } from "@/graph/axes.ts";
 import { buildGraph, groupCount } from "@/graph/build.ts";
-import { buildThread, unthreaded } from "@/graph/thread.ts";
+import { buildThread, journeyObservation, unthreaded } from "@/graph/thread.ts";
 import { download, exportMapPng } from "@/viz/exportImage.ts";
 import { importLetterboxdFiles, type ImportResult } from "@/import/letterboxd.ts";
 
@@ -115,10 +116,8 @@ export function Atlas() {
   const active = useMemo(() => resolveAxis(library, axis), [library, axis]);
 
   /*
-    The one place the two topologies diverge. A thread and a hub map are the same
-    `Graph` to everything downstream — same node ids, so a film keeps its identity
-    across a switch and can be watched travelling from its place on the calendar
-    into its decade cluster and back.
+    A journey and a hub map share the Graph interface. The earliest stop keeps
+    the canonical film node id; later viewings link back through filmId.
   */
   const graph = useMemo(
     () => (active.kind === "thread" ? buildThread(library) : buildGraph(library, active.strategy)),
@@ -129,7 +128,10 @@ export function Atlas() {
     speaks to what is on screen is preferred. Nothing new becomes sayable, so
     switching axes cannot make EIGA assert something it would not otherwise.
   */
-  const observation = useMemo(() => observe(library, active.id), [library, active]);
+  const observation = useMemo(
+    () => active.kind === "thread" ? journeyObservation(graph) : observe(library, active.id),
+    [library, active, graph],
+  );
 
   /*
     Selection is derived too, because hubs belong to an axis. Re-sorting the map
@@ -138,10 +140,13 @@ export function Atlas() {
     keep their id across axes, so a selected film survives the switch and can be
     watched travelling to its new place.
   */
-  const focused = useMemo(
-    () => (focusedId && graph.nodes.some((node) => node.id === focusedId) ? focusedId : null),
-    [graph, focusedId],
-  );
+  const focused = useMemo(() => {
+    if (!focusedId) return null;
+    if (graph.nodes.some((node) => node.id === focusedId)) return focusedId;
+    // A rewatch stop becomes its film when switching to an attribute map.
+    const film = library.films.find((entry) => focusedId.startsWith(`viewing:${entry.id}:`));
+    return film ? graph.nodes.find((node) => node.filmId === film.id)?.id ?? null : null;
+  }, [graph, focusedId, library]);
 
   /*
     Searched over the library rather than the graph: the answer is about films,
@@ -181,9 +186,9 @@ export function Atlas() {
     setFocusedId(null);
   }, []);
 
-  const films = graph.nodes.filter((node) => node.kind === "film").length;
+  const films = library.films.length;
   /*
-    Hubs on a hub map, distinct watch days on the thread — `groupCount` knows
+    Hubs on a hub map, dated viewing stops on the journey — `groupCount` knows
     which, so the status line does not have to branch and cannot disagree with
     the map about what it is showing.
   */
@@ -284,6 +289,9 @@ export function Atlas() {
         */
         <>
           <div className="eiga-grid absolute inset-0" />
+          <div className="absolute top-7 right-7 z-20 sm:right-12">
+            <ThemeControl />
+          </div>
           <Landing
             onFiles={load}
             onDemo={() => setDemoAsked(true)}
@@ -337,7 +345,8 @@ export function Atlas() {
               beside the wordmark; a right-aligned stack above `sm`, which is the
               corner they have always occupied.
             */}
-            <div className="pointer-events-auto col-start-2 row-start-1 flex items-start gap-3 justify-self-end sm:row-span-2 sm:flex-col sm:items-end sm:gap-4 sm:text-right">
+            <div className="pointer-events-auto col-start-2 row-start-1 flex flex-wrap items-start justify-end gap-2 justify-self-end max-sm:max-w-56 sm:row-span-2 sm:flex-col sm:items-end sm:gap-4 sm:text-right">
+              <ThemeControl />
               <ImportControl onFiles={load} hintClassName="max-sm:hidden" />
               {/*
                 The same hairline box as the import, and no quieter. It was an
@@ -369,6 +378,11 @@ export function Atlas() {
               <AxisControl options={options} active={active.id} onSelect={setAxis} />
               <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
               <FilterControl options={filters} active={highlights} onToggle={toggleHighlight} />
+              {active.id === "diary" && (
+                <p className="eiga-annotation mt-3 max-w-sm text-balance">
+                  Longer gaps get more room
+                </p>
+              )}
             </div>
           </div>
 
@@ -409,7 +423,7 @@ export function Atlas() {
               fixed plate that scrolls keeps the map still; above `sm` the label
               floats over the map and can be exactly as tall as it needs to be.
             */}
-            <div className="pointer-events-auto max-sm:h-28 max-sm:w-full max-sm:overflow-y-auto">
+            <div className="pointer-events-auto max-sm:h-36 max-sm:w-full max-sm:overflow-y-auto">
               <Inspector
                 graph={graph}
                 library={library}

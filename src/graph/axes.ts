@@ -68,7 +68,7 @@ export const AXES: readonly Axis[] = [
       understates the axis and, worse, describes the one thing it no longer
       encodes visually.
     */
-    label: "Watch dates",
+    label: "Your journey",
     /*
       First in the list, so `resolveAxis`'s existing fallback to `options[0]`
       makes it the default with no new defaulting logic anywhere.

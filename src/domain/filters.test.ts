@@ -162,8 +162,8 @@ test("what narrow returns is what a film node carries", () => {
   const lit = narrow(source, ["rewatched"], "");
   assert.ok(lit);
 
-  const named = graph.nodes
+  const named = [...new Set(graph.nodes
     .filter((node) => node.filmId !== null && lit.has(node.filmId))
-    .map((node) => node.label);
+    .map((node) => node.label))];
   assert.deepEqual(named, ["Solaris"]);
 });

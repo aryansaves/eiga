@@ -162,6 +162,15 @@ export function labelBox(node: LayoutNode, scale: number): Box {
   return around(node.x - half, node.x + half, baseline, size);
 }
 
+/** The optional journey caption above a stop, reserved with its film title. */
+function milestoneBox(node: LayoutNode, scale: number): Box | null {
+  if (!node.milestone) return null;
+  const captionSize = 9 / scale;
+  const captionHalf = extent(node.milestone, captionSize, 0.08) / 2;
+  return around(node.x - captionHalf, node.x + captionHalf,
+    node.y - node.radius - 1.1 * captionSize, captionSize);
+}
+
 /**
  * A year row's label, which is right-anchored in the margin left of the row.
  *
@@ -224,15 +233,18 @@ export function visibleLabels(plan: LabelPlan): ReadonlySet<string> {
   films.sort((a, b) => {
     const byLit = Number(isLit(b)) - Number(isLit(a));
     if (byLit !== 0) return byLit;
+    const byMilestone = Number(Boolean(b.milestone)) - Number(Boolean(a.milestone));
+    if (byMilestone !== 0) return byMilestone;
     const byRating = (b.rating ?? -1) - (a.rating ?? -1);
     if (byRating !== 0) return byRating;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
   for (const film of films) {
-    const box = labelBox(film, plan.scale);
-    if (taken.some((other) => overlaps(other, box))) continue;
-    taken.push(box);
+    const boxes = [labelBox(film, plan.scale), milestoneBox(film, plan.scale)]
+      .filter((box): box is Box => box !== null);
+    if (boxes.some((box) => taken.some((other) => overlaps(other, box)))) continue;
+    taken.push(...boxes);
     named.add(film.id);
   }
 

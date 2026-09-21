@@ -1,44 +1,15 @@
 "use client";
 
 /**
- * The graph surface.
- *
- * The division of labour is strict, because mixing the two is what makes D3 and
- * React painful together. The line is drawn by what a value *derives from*, not
- * by which element it lands on:
- *
- *  - React owns structure and everything derived from the `Graph`. It renders one
- *    `<g>` per node and one line per edge, and expresses selection, rating and lit
- *    state as `data-` attributes that globals.css turns into a visual hierarchy.
- *    The year graticule counts as structure too: which years exist, and where each
- *    month falls inside one, are facts about the calendar rather than about where
- *    the simulation came to rest.
- *  - The effects here own everything derived from *coordinates*, and write it
- *    straight to the DOM through refs: `transform` and the line endpoints on
- *    every tick, and `data-named` — which titles the map has room for — whenever
- *    the label choice is recomputed. None of those attributes appear in JSX, so
- *    React never fights for them, and a 60fps simulation costs zero
- *    reconciliation. `data-named` belongs on this side for the same reason: it is
- *    a function of where the dots came to rest, and routing 124 of them through
- *    state on every zoom step would defeat the whole arrangement.
- *
- * The split is worth being pedantic about: radius is derived from the graph in
- * both places rather than passed from the layout, so nothing in the render path
- * needs to know that a simulation exists.
- *
- * Accessibility: hubs are in the tab order because they are the structure of the
- * map and there are only a handful. Films are not — a force graph with a hundred
- * tab stops is worse than useless — so they are reachable through the film list
- * in the inspector instead, which is the keyboard-equivalent route to the same
- * selection. A film whose title lost the collision test is unaffected by any of
- * this: its `aria-label` carries the full description either way.
+ * React owns SVG structure and selection. D3 owns coordinates, zoom, and
+ * collision-aware label visibility. Journey stops use a roving keyboard target;
+ * arrow keys follow the viewing order without adding hundreds of tab stops.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, zoomTransform, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 
-import { monthStarts } from "@/domain/calendar.ts";
 import { RATING_MAX } from "@/domain/types.ts";
 import {
   groupCount,
@@ -56,14 +27,11 @@ import {
   FRAME_INSET,
   FRAME_INSET_BARE,
   hubRadius,
-  MONTH_TICK,
   positionsOf,
   settle,
-  YEAR_LABEL_GAP,
-  YEAR_WIDTH,
   type FrameInset,
   type LayoutHandle,
-  type Position,
+  type LayoutNode,
 } from "@/viz/layout.ts";
 
 /**
@@ -102,37 +70,12 @@ const ZOOM_STEP = 0.06;
  */
 const LAYOUT_BUCKET = 64;
 
-/**
- * How far the December→January link reaches past its own ends, in layout px.
- *
- * Every other chain edge joins two films a few days apart and is drawn straight.
- * This one crosses a year boundary, and because the years are stacked as rows that
- * means it runs from somewhere near the right of one row to somewhere near the left
- * of the row below — the width of the whole map. Drawn straight it would cut a
- * diagonal through every film in both rows.
- *
- * So it is drawn as a cubic instead, with both control points displaced *outward*
- * and half a row down. The curve leaves to the right, flattens out through the empty
- * band between the rows, and re-enters from the left: a carriage return, which is
- * exactly what it is. `wrapPath` works out why the arithmetic lands in the gutter.
- */
-const WRAP_REACH = 44;
-
-/**
- * The path for a wrap edge: out to the right, along the gutter, back in at the left.
- *
- * The two control points sit at the same height, half way between the rows, which is
- * what puts the flat middle of the curve in the empty band. Worth showing, since it
- * is the one thing this function has to get right: for a cubic, the point at
- * t = ½ is (P₀ + 3P₁ + 3P₂ + P₃) ÷ 8, and with both controls at y + Δ/2 that is
- * y + (1 + 3·½ + 3·½ + 1)·Δ/8 … = y + Δ/2 exactly. The reaches cancel in x for the
- * same reason, so the sweep is centred whatever the dates at either end happen to be.
- */
-function wrapPath(from: Position, to: Position): string {
-  const sag = (to.y - from.y) / 2;
-  const c1 = `${(from.x + WRAP_REACH).toFixed(2)} ${(from.y + sag).toFixed(2)}`;
-  const c2 = `${(to.x - WRAP_REACH).toFixed(2)} ${(to.y - sag).toFixed(2)}`;
-  return `M${from.x.toFixed(2)} ${from.y.toFixed(2)}C${c1} ${c2} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
+/** Tangents carry the reader smoothly around each turn of the journey. */
+function journeyPath(from: LayoutNode, to: LayoutNode): string {
+  const reach = Math.hypot(to.x - from.x, to.y - from.y) * 0.4;
+  const c1 = `${from.x + (from.tangentX ?? 1) * reach} ${from.y + (from.tangentY ?? 0) * reach}`;
+  const c2 = `${to.x - (to.tangentX ?? 1) * reach} ${to.y - (to.tangentY ?? 0) * reach}`;
+  return `M${from.x} ${from.y}C${c1} ${c2} ${to.x} ${to.y}`;
 }
 
 interface Viewport {
@@ -197,32 +140,22 @@ function quantise(value: number): number {
 function filmDescription(node: GraphNode): string {
   const year = node.year === null ? "year unknown" : String(node.year);
   const rating = node.rating === null ? "unrated" : `rated ${node.rating}`;
-  return `${node.label}, ${year}, ${rating}`;
+  return `${node.label}, ${year}, ${rating}${node.watchedOn ? `, ${node.rewatch ? "rewatched" : "watched"} ${node.watchedOn}` : ""}`;
 }
 
-/**
- * What the map is, for a screen reader.
- *
- * Branches on topology because the two say genuinely different things: a hub map
- * groups films, and the thread places them on a calendar. `groupCount` supplies the
- * number in both cases, so this can never disagree with the status line beneath the
- * map.
- *
- * The thread wording carries the span because the row stack is the one thing a
- * screen reader cannot see and the year labels are the only place it is written
- * down. Saying "in the order they were watched" — true of the spiral this replaced —
- * would now describe the sequence and omit the scale.
- */
 function mapDescription(graph: Graph, films: number): string {
   const groups = groupCount(graph);
   if (graph.shape !== "thread") {
     return `Map of ${films} films across ${groups} ${graph.groupKind} groups`;
   }
+  const viewings = graph.nodes.filter((node) => node.kind === "film").length;
+  const undated = viewings - groups;
   const first = graph.years[0];
   const last = graph.years[graph.years.length - 1];
   const span =
     first === undefined ? "" : first === last ? ` in ${first}` : ` from ${first} to ${last}`;
-  return `Map of ${films} films on the days they were watched, across ${groups} days${span}`;
+  const unknownDates = undated === 0 ? "" : `, including ${undated} with unknown dates`;
+  return `Journey through ${viewings} viewings of ${films} films${span}${unknownDates}`;
 }
 
 export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }: GraphViewProps) {
@@ -231,15 +164,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
   const viewportRef = useRef<SVGGElement>(null);
   const nodeEls = useRef(new Map<string, SVGGElement>());
   const edgeEls = useRef(new Map<string, SVGLineElement | SVGPathElement>());
-  /**
-   * The year rows, keyed by year.
-   *
-   * One element each, not four: a row's rule, its twelve month ticks and its number
-   * are all placed relative to the row's own left end, so the only coordinate the
-   * simulation contributes is where that end is. Everything inside is a fixed offset
-   * React can write once.
-   */
-  const rowEls = useRef(new Map<number, SVGGElement>());
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   /** Set once the user pans or zooms, after which the view is theirs to keep. */
   const exploredRef = useRef(false);
@@ -456,9 +380,9 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
         const from = endpoint(edge.source);
         const to = endpoint(edge.target);
         if (!el || !from || !to) continue;
-        // A wrap is a `<path>` and everything else a `<line>` — see `wrapPath`.
-        if (edge.kind === "wrap") {
-          el.setAttribute("d", wrapPath(from, to));
+        // Journey links curve; attribute-map links stay straight.
+        if (edge.kind === "wrap" || edge.kind === "chain") {
+          el.setAttribute("d", journeyPath(from, to));
           continue;
         }
         el.setAttribute("x1", from.x.toFixed(2));
@@ -471,20 +395,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
     const frame = () => frameTo(layout, sizeRef.current);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    /*
-      Year rows are placed once and never again. They are the map's graticule:
-      fixed to the calendar while the films settle against it, which is the
-      relationship a printed map has between its grid and its terrain — and a
-      graticule that drifted with the terrain would be measuring nothing.
-
-      Only the row's left end is written here. The rule, the twelve month ticks and
-      the number are all offsets from it, so React has already placed them.
-    */
-    for (const row of layout.rows) {
-      rowEls.current
-        .get(row.year)
-        ?.setAttribute("transform", `translate(${row.left.toFixed(2)} ${row.y.toFixed(2)})`);
-    }
 
     /*
       A map that is not re-sorting settles before it is shown. Watching a hundred
@@ -497,7 +407,7 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
       without the journey.
     */
     if (!resorting || reducedMotion) {
-      settle(simulation);
+      if (graph.shape !== "thread") settle(simulation);
       paint();
       // Only a first paint reclaims the view; a re-sort leaves the framing be.
       if (!layout.seeded) exploredRef.current = false;
@@ -509,7 +419,7 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
         label choice is a function of that scale.
       */
       applyNames();
-      if (reducedMotion) return;
+      if (reducedMotion || graph.shape === "thread") return;
 
       // Re-heat gently, so the map is seen finding its last few millimetres.
       // Names are chosen again at the end of it, against where the dots actually
@@ -643,6 +553,27 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
     applyNames();
   }, [lit]);
 
+  // Following the journey keeps the selected viewing and its neighbours in view.
+  useLayoutEffect(() => {
+    if (graph.shape !== "thread" || !focusedId) return;
+    const svg = svgRef.current;
+    const behaviour = zoomRef.current;
+    const layout = layoutRef.current;
+    const viewport = sizeRef.current;
+    if (!svg || !behaviour || !layout || !viewport) return;
+    const index = layout.nodes.findIndex((node) => node.id === focusedId);
+    if (index < 0) return;
+    const nearby = layout.nodes.slice(Math.max(0, index - 1), index + 2);
+    const inset = insetFor(viewport);
+    const fit = fitToFrame(nearby, viewport.width, viewport.height, [], {
+      ...inset, top: inset.top + 20, bottom: inset.bottom + 24,
+    });
+    exploredRef.current = true;
+    beforeTravelRef.current = null;
+    behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
+    applyNames();
+  }, [focusedId, graph, layoutWidth, layoutHeight]);
+
   const neighbours = useMemo(
     () => (focusedId ? neighboursOf(graph, focusedId) : null),
     [graph, focusedId],
@@ -685,11 +616,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
     else edgeEls.current.delete(id);
   };
 
-  const registerRow = (year: number) => (el: SVGGElement | null) => {
-    if (el) rowEls.current.set(year, el);
-    else rowEls.current.delete(year);
-  };
-
   const toggle = (id: string) => onFocus(id === focusedId ? null : id);
 
   return (
@@ -705,7 +631,7 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
         data-narrowed={lit ? "true" : "false"}
         data-shape={graph.shape}
         role="group"
-        aria-label={mapDescription(graph, films.length)}
+        aria-label={mapDescription(graph, new Set(films.map((node) => node.filmId)).size)}
         // Clicking the surface itself — not a node — releases the anchor.
         onClick={(event) => {
           if (event.target === event.currentTarget) onFocus(null);
@@ -718,57 +644,10 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
             dots at the origin is not a map.
           */}
 
-          {/*
-            The year rows, underneath everything — a graticule the map is drawn
-            over, never a thing in it. Deliberately not nodes: a year that could be
-            clicked, focused or counted would be a hub, and the timeline has none.
-
-            Each row is a group placed at its own January 1st, so everything in it is
-            written in offsets from there: the rule runs the width of a year, the
-            ticks stand at the true start of each month, and the number sits out in
-            the left margin. Rendered from `graph.years`, positioned from
-            `layout.rows`, which is the same division of labour as every node here.
-          */}
-          <g aria-hidden="true">
-            {ready &&
-              graph.years.map((year) => (
-                <g key={year} ref={registerRow(year)} className="eiga-year">
-                  <line className="eiga-year-rule" x2={YEAR_WIDTH} />
-                  {/*
-                    Twelve, and unevenly spaced: February is 28 days of 365, so the
-                    March tick belongs a few pixels left of an even twelfth. The same
-                    function places the films, which is the point of `domain/calendar`.
-                  */}
-                  {monthStarts(year).map((fraction, month) => {
-                    const x = fraction * YEAR_WIDTH;
-                    return (
-                      <line
-                        key={month}
-                        className="eiga-year-tick"
-                        x1={x}
-                        x2={x}
-                        y1={-MONTH_TICK}
-                        y2={MONTH_TICK}
-                      />
-                    );
-                  })}
-                  <text x={-YEAR_LABEL_GAP} dy="0.32em">
-                    {year}
-                  </text>
-                </g>
-              ))}
-          </g>
-
           <g>
             {ready &&
               graph.edges.map((edge) =>
-                /*
-                  A wrap crosses a year boundary, which on a stacked map is the width
-                  of the whole thing, so it is the one edge drawn as a curve rather
-                  than a straight line. Both branches carry identical attributes: the
-                  element differs, the state does not.
-                */
-                edge.kind === "wrap" ? (
+                edge.kind === "wrap" || edge.kind === "chain" ? (
                   <path
                     key={edge.id}
                     ref={registerEdge(edge.id)}
@@ -800,13 +679,42 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
                     data-state={nodeState(node.id)}
                     data-loved={node.rating === RATING_MAX ? "true" : "false"}
                     data-lit={litState(node)}
+                    data-rewatch={node.rewatch ? "true" : undefined}
                     role="button"
-                    tabIndex={-1}
+                    tabIndex={graph.shape === "thread" &&
+                      (focusedId ? focusedId === node.id : node.id === films[0]?.id) ? 0 : -1}
                     aria-label={filmDescription(node)}
                     aria-pressed={node.id === focusedId}
                     onClick={() => toggle(node.id)}
+                    onKeyDown={(event) => {
+                      if (graph.shape !== "thread") return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggle(node.id);
+                      } else if (event.key === "Escape") {
+                        onFocus(null);
+                      } else if (["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(event.key)) {
+                        event.preventDefault();
+                        const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+                        const next = films[films.findIndex((film) => film.id === node.id) + step];
+                        if (next) {
+                          onFocus(next.id);
+                          nodeEls.current.get(next.id)?.focus();
+                        }
+                      }
+                    }}
                   >
+                    <title>{filmDescription(node)}</title>
+                    {graph.shape === "thread" && (
+                      <circle r={14} style={{ fill: "transparent", stroke: "none" }} />
+                    )}
+                    {node.rewatch && <circle className="eiga-rewatch-ring" r={radius + 3} />}
                     <circle r={radius} />
+                    {node.milestone && (
+                      <text className="eiga-journey-caption" y={-radius} dy="-1.1em">
+                        {node.milestone}
+                      </text>
+                    )}
                     {/*
                       The gap to the dot is an `em`, not a constant: type here is
                       counter-scaled by `--zoom`, so an offset in px would close up
@@ -853,6 +761,20 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
           </g>
         </g>
       </svg>
+      {graph.shape === "thread" && (
+        <button type="button"
+          className="eiga-button bg-void absolute right-3 bottom-3 sm:right-12 sm:bottom-36"
+          onClick={() => {
+            onFocus(null);
+            exploredRef.current = false;
+            beforeTravelRef.current = null;
+            const layout = layoutRef.current;
+            if (layout) frameTo(layout, sizeRef.current);
+            applyNames();
+          }}>
+          Whole journey
+        </button>
+      )}
     </div>
   );
 }

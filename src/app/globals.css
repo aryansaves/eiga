@@ -11,9 +11,8 @@
 /*
   EIGA design tokens.
 
-  Dark-only by intent: EIGA is an instrument you look into, not a document you
-  read in two lighting modes. There is deliberately no `prefers-color-scheme`
-  branch here.
+  The original graphite palette is the default. Light mode overrides the same
+  tokens so controls, SVG marks and exported images share one palette.
 
   Typefaces are resolved from system stacks so the app builds and runs with no
   network dependency. Self-hosting a display face via `next/font/local` is the
@@ -63,6 +62,22 @@
 
 html {
   color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-void: #f3f1ea;
+  --color-ink: #eeece4;
+  --color-surface: #eae8df;
+  --color-raised: #e1dfd5;
+  --color-rule: #c5c5b8;
+  --color-rule-soft: #e7e5dc;
+  --color-paper: #252a28;
+  --color-paper-mid: #4c5550;
+  --color-paper-dim: #646c63;
+  --color-signal: #536b24;
+  --color-signal-muted: #687d37;
+  --color-signal-deep: #77865a;
 }
 
 body {
@@ -178,6 +193,17 @@ body {
   cursor: default;
 }
 
+.eiga-theme-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.eiga-theme-button svg {
+  flex: none;
+}
+
 /*
   Graph surface.
 
@@ -277,8 +303,10 @@ body {
   drawn coil rather than as a line through the films.
 */
 .eiga-edge[data-kind="chain"] {
-  stroke: var(--color-rule);
+  fill: none;
+  stroke: var(--color-paper-dim);
   stroke-width: 1.1;
+  stroke-opacity: 0.55;
 }
 
 /*
@@ -355,6 +383,31 @@ body {
   transition:
     fill 200ms ease,
     stroke 200ms ease;
+}
+
+.eiga-graph .eiga-film circle.eiga-rewatch-ring {
+  fill: none;
+  stroke: var(--color-paper-dim);
+  stroke-width: 0.8;
+}
+
+.eiga-journey-caption {
+  opacity: 0;
+  fill: var(--color-paper-dim);
+  font-family: var(--font-mono);
+  font-size: calc(9px / var(--zoom));
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--color-void);
+  stroke-width: calc(3px / var(--zoom));
+  stroke-linejoin: round;
+}
+
+.eiga-film[data-named="true"] .eiga-journey-caption,
+.eiga-film[data-state="anchor"] .eiga-journey-caption,
+.eiga-film:hover .eiga-journey-caption {
+  opacity: 1;
 }
 
 /*

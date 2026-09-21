@@ -1,43 +1,4 @@
-/**
- * Force layout.
- *
- * D3 owns coordinates; nothing else does. This module takes a `Graph`, hands
- * d3-force its own mutable copies of the nodes, and exposes the simulation. No
- * React, no DOM.
- *
- * There are two authored geometries here, one per topology, and in both cases the
- * authoring is the point: left to itself d3-force produces a symmetric blob with
- * no reading order, which is a picture of nothing.
- *
- * **The timeline** — the default map — is the calendar itself. One row per year,
- * stacked oldest at the top; a film's horizontal place is the day it was seen and
- * nothing else, so the same week sits under the same month tick in every row and a
- * dormant spring is visible as empty rule. See `yearRows` for the geometry, and
- * `graph/thread.ts` for why this replaced a spiral that spaced films by their
- * place in a queue.
- *
- * **A hub map** pins hubs along a staggered horizontal band in *axis* order and
- * seeds films beside their hub. On an ordinal axis that reads left-to-right
- * through the scale — decades through time, ratings low to high; on a nominal axis
- * the order is alphabetical, which is arbitrary but stable. How far apart they sit
- * follows how far their clusters reach rather than how wide the window is, and the
- * stagger is part of that arithmetic rather than a flourish — see `hubAnchors`. The
- * graph's own spine edges are laid over that as a slack tether: the anchors do the
- * placing, because deterministic placement is worth more than an organic chain, and
- * the tether only stops the ends of a long scale from drifting apart.
- *
- * Neither map is a plotted figure. A layout that placed every node exactly would
- * be a diagram, so both are given a reason to be irregular — the hub map by
- * anchoring films only faintly and letting their neighbours shoulder them around,
- * the timeline by scattering films *within* their row. The two mechanisms differ
- * because on the timeline one axis carries a date and the other carries nothing:
- * a film nudged sideways would be claiming the wrong day, so it is only ever
- * nudged up and down. See `ROW_WANDER`.
- *
- * Seeding is deterministic — no `Math.random` — so the same library always
- * settles into recognisably the same map, and a reload does not shuffle a place
- * the user had started to learn.
- */
+/** Coordinates for the winding viewing journey and the existing hub maps. */
 
 import {
   forceCollide,
@@ -51,7 +12,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 
-import { monthStarts } from "../domain/calendar.ts";
+import { journeyAnchors, type JourneyPoint } from "./journey.ts";
 import { RATING_MAX, RATING_MIN } from "../domain/types.ts";
 import { orderedHubs, type Graph, type GraphEdgeKind, type GraphNode } from "../graph/build.ts";
 
@@ -63,6 +24,8 @@ export interface LayoutNode extends GraphNode, SimulationNodeDatum {
   /** Where the node wants to sit. Hubs are placed; films drift around them. */
   readonly anchorX: number;
   readonly anchorY: number;
+  readonly tangentX?: number;
+  readonly tangentY?: number;
 }
 
 export interface LayoutEdge extends SimulationLinkDatum<LayoutNode> {
@@ -77,14 +40,7 @@ export interface LayoutHandle {
   readonly nodes: readonly LayoutNode[];
   readonly edges: readonly LayoutEdge[];
   readonly simulation: Simulation<LayoutNode, LayoutEdge>;
-  /**
-   * The year rows of the diary timeline. Empty on a hub map.
-   *
-   * Fixed geometry, not simulated: the rows are the calendar and the films settle
-   * against them, which is exactly the relationship a printed map has between its
-   * graticule and its terrain. A graticule that drifted with the terrain would be
-   * measuring nothing.
-   */
+  /** Optional calendar bounds; the winding journey supplies no rows. */
   readonly rows: readonly YearRow[];
   /**
    * Whether any node started from a previous position.
@@ -255,181 +211,17 @@ function homeHubs(graph: Graph): ReadonlyMap<string, string> {
 /** Golden-angle offsets: deterministic, but organic rather than gridded. */
 const GOLDEN_ANGLE = 2.399963229728653;
 
-/* --- The diary timeline -------------------------------------------------- */
-
-/**
- * How wide one calendar year is drawn, in layout px.
- *
- * The scale of the whole map, so it is chosen against the frame rather than
- * against the data: a little under a laptop viewport, so a library of a few years
- * opens at close to 1× and therefore opens *with titles* — `fitToFrame` caps the
- * scale at 1 and `labels.ts` prints nothing below 0.5×. A straight single-row
- * ribbon of the same library ran to some 2,600px and opened at 0.49×, a hundredth
- * below the floor, with a blank map as the result. Folding into rows is what buys
- * the width back.
- *
- * At this width a busy year of 300 watch days puts consecutive days three or four
- * pixels apart, which is closer than two dots can sit — so a heavy month reads as
- * a solid run and `forceCollide` spreads it vertically. That is the intended
- * reading, not a defect: it is what a binge looks like from a distance.
- */
+/** Retained calendar geometry vocabulary for label and framing helpers. */
 export const YEAR_WIDTH = 1040;
-
-/**
- * Vertical distance between one year row and the next.
- *
- * Sized for what goes *between* two rows rather than for the dots themselves: a
- * title hanging below a film, the vertical spread `forceCollide` gives a crowded
- * month, and the wrap curve that carries December into January. Tighter than this
- * and a busy year's films start reading as belonging to the row below.
- */
 export const ROW_GAP = 92;
-
-/**
- * Half-length of a month tick, in layout px. Short: it measures, it does not divide.
- *
- * Twelve of these per row is already 120 marks on a ten-year map, so they are kept
- * to the smallest length that still reads as a scale. Full-height rules through the
- * whole stack were the alternative and would have made the map a grid — see
- * `.eiga-year` in globals.css for why the graticule stays this quiet.
- */
 export const MONTH_TICK = 3.5;
-
-/**
- * Gap between a row's left end and its year label, in layout px.
- *
- * Map geometry rather than a rendering detail, and it lives here because two
- * callers must agree on it: the renderer places the label, and `viz/labels.ts` has
- * to know where that puts it in order to keep a film's title off it.
- */
 export const YEAR_LABEL_GAP = 14;
-
-/** Clear space between the last year row and the band of undated films. */
-const UNDATED_GAP = 78;
-/** Horizontal spacing inside the undated band, and the drop between its lines. */
-const UNDATED_STRIDE = 30;
-const UNDATED_LINE = 34;
-
-/**
- * How far a film's place is scattered *within* its row, in layout px.
- *
- * The user asked for a map that reads as scattered, and a row of dots on a rule is
- * the opposite — a chart, not a place. So every film is displaced vertically by a
- * fixed distance in a direction that never falls into a pattern the eye can name.
- *
- * Vertical only, and that is the whole reason this constant exists separately from
- * the hub map's spread. Horizontal position on this map *is* the date: a film
- * nudged sideways by seven pixels would be a film claiming a different week. Height
- * inside a row means nothing at all, so it is free.
- *
- * It belongs to the *anchor* rather than to the seed, and that is the mechanism: a
- * nudge applied only at seeding would be pulled straight back onto the rule within
- * a few ticks, leaving the chart this exists to avoid.
- */
-const ROW_WANDER = 7;
-
-/**
- * One calendar year, drawn as a row.
- *
- * Returned from the layout and drawn by React as a background mark, *not* as a
- * node — a year that could be clicked, focused or counted would be a hub, and the
- * timeline has none. A rule, twelve ticks and a number in the margin: the marks a
- * printed chart uses to say what its axis is, and nothing more.
- */
 export interface YearRow {
   readonly year: number;
-  /** The rule's y, which is also the height films in this year are drawn at. */
   readonly y: number;
-  /** January 1st. */
   readonly left: number;
-  /** The end of December 31st. */
   readonly right: number;
-  /** Where each month begins, January first. Twelve of them, unevenly spaced. */
   readonly months: readonly number[];
-}
-
-/**
- * The rows for a timeline. Empty for anything else, since it has no calendar.
- *
- * Every row spans a whole year, `left` to `right`, whether or not films reach
- * either end. That is what makes the stack readable across rows — February is at
- * the same x in every one of them — and it is also the honest drawing: the rule is
- * the year, and a bare stretch of it is a month nothing was watched in.
- */
-function yearRows(graph: Graph, centre: Position): readonly YearRow[] {
-  const count = graph.years.length;
-  if (count === 0) return [];
-
-  const left = centre.x - YEAR_WIDTH / 2;
-  const top = centre.y - ((count - 1) * ROW_GAP) / 2;
-
-  return graph.years.map((year, index) => ({
-    year,
-    y: top + index * ROW_GAP,
-    left,
-    right: left + YEAR_WIDTH,
-    // Computed per year, not shared: February moves in a leap year, and a tick
-    // drawn a day and a half off is a film sitting on the wrong side of its month.
-    months: monthStarts(year).map((fraction) => left + fraction * YEAR_WIDTH),
-  }));
-}
-
-/**
- * Where each film sits on the timeline.
- *
- * Films with a calendar position take it exactly, scattered only in height. Films
- * with none — around ten in a real export — are parked in a band below the last
- * row: they have to be somewhere, and every position inside the calendar means a
- * date, which for these films would be a date they were not watched on. Outside
- * and unlinked is the only honest place, and the status line names the count so
- * the band reads as a statement rather than as a rendering fault.
- */
-function timelineAnchors(
-  graph: Graph,
-  rows: readonly YearRow[],
-  centre: Position,
-): ReadonlyMap<string, Position> {
-  const anchors = new Map<string, Position>();
-  const byYear = new Map(rows.map((row) => [row.year, row]));
-  const left = rows[0]?.left ?? centre.x - YEAR_WIDTH / 2;
-  let floor = rows[rows.length - 1]?.y ?? centre.y;
-
-  /*
-    Indexed by position in `graph.nodes`, which is sorted by id — so which film
-    gets which offset is arbitrary but identical on every reload. It also parts the
-    films sharing a day: consecutive golden angles are 137.5° apart, so a knot
-    opens into a small vertical spread instead of starting as one coincident pile,
-    which is what d3-force would otherwise resolve with a random nudge.
-  */
-  graph.nodes.forEach((node, index) => {
-    if (node.when === null) return;
-    const row = byYear.get(node.when.year);
-    if (row === undefined) return;
-    anchors.set(node.id, {
-      x: row.left + node.when.through * YEAR_WIDTH,
-      y: row.y + ROW_WANDER * Math.sin(index * GOLDEN_ANGLE),
-    });
-  });
-
-  /*
-    A tidy run rather than a scatter, and deliberately so: these films are an
-    appendix to the calendar, not a region of it, and a strip parked below the last
-    year reads as one. `graph.nodes` is sorted by id, so which film lands where is
-    stable across reloads.
-  */
-  const columns = Math.max(1, Math.floor(YEAR_WIDTH / UNDATED_STRIDE));
-  floor += UNDATED_GAP;
-  let placed = 0;
-  for (const node of graph.nodes) {
-    if (node.when !== null) continue;
-    anchors.set(node.id, {
-      x: left + (placed % columns) * UNDATED_STRIDE,
-      y: floor + Math.floor(placed / columns) * UNDATED_LINE,
-    });
-    placed += 1;
-  }
-
-  return anchors;
 }
 
 /** Every hub, and every film beside its own hub. */
@@ -465,33 +257,9 @@ const LINK_STRENGTH: Record<GraphEdgeKind, number> = {
   session: 0.06,
   spine: 0.05,
   chain: 0.09,
-  /*
-    All but inert. A wrap edge really does span the width of the map, and its
-    endpoints are already placed to the pixel by the calendar — there is nothing
-    for a force to improve. It is in the simulation only so `forceLink` resolves
-    its endpoints to nodes for the renderer to draw between. Not zero, because a
-    link with no strength at all reads as an accident to anyone changing this
-    later; this is a number small enough to say "on purpose, and negligible".
-  */
+  // Legacy edge kind retained for graph compatibility.
   wrap: 0.004,
 };
-
-/**
- * How firmly a film is held to its place on the timeline.
- *
- * Split by axis, unlike the hub map, because on this map the two axes mean
- * different things. Horizontal position *is* the watch date, and the whole claim
- * of the map is that it can be read as one — so x pulls hard and a film dragged a
- * fortnight out of place by its neighbours is a bug. Vertical position inside a
- * row means nothing, so y is left loose enough for `forceCollide` to open a binge
- * out into a legible clump rather than compressing it into an unreadable bar.
- *
- * Both are far firmer than a film's pull on a hub map, where the anchor is only a
- * hint and membership does the holding. Here the anchor carries the entire meaning
- * of the picture.
- */
-const PLACE_PULL_X = 0.62;
-const PLACE_PULL_Y = 0.2;
 
 export function createLayout(
   graph: Graph,
@@ -501,9 +269,9 @@ export function createLayout(
 ): LayoutHandle {
   const centre = { x: width / 2, y: height / 2 };
   const thread = graph.shape === "thread";
-  const rows = thread ? yearRows(graph, centre) : [];
+  const rows: readonly YearRow[] = [];
   const anchors = thread
-    ? timelineAnchors(graph, rows, centre)
+    ? journeyAnchors(graph, width, height)
     : hubMapAnchors(graph, width, height);
   let seeded = false;
 
@@ -513,7 +281,7 @@ export function createLayout(
 
     // On a hub map films fan out around their hub, having nowhere better to be
     // until the forces sort them out. On the timeline the anchor already is the
-    // answer, scatter and all, so a film starts exactly on it.
+    // answer, so a film starts exactly on it.
     const spread = thread ? 0 : isHub ? 0 : 34 + 5 * Math.sqrt(index);
     const angle = index * GOLDEN_ANGLE;
 
@@ -523,7 +291,7 @@ export function createLayout(
       cutting in. Hubs are not carried over: they belong to the axis, so they
       simply appear at their new places and the films travel to them.
     */
-    const seed = isHub ? undefined : previous?.get(node.id);
+    const seed = isHub || thread ? undefined : previous?.get(node.id);
     if (seed) seeded = true;
 
     return {
@@ -531,6 +299,12 @@ export function createLayout(
       radius: isHub ? hubRadius(node.degree) : filmRadius(node.rating),
       anchorX: anchor.x,
       anchorY: anchor.y,
+      ...(thread ? {
+        fx: anchor.x,
+        fy: anchor.y,
+        tangentX: (anchor as JourneyPoint).tangentX,
+        tangentY: (anchor as JourneyPoint).tangentY,
+      } : {}),
       x: seed ? seed.x : anchor.x + spread * Math.cos(angle),
       y: seed ? seed.y : anchor.y + spread * Math.sin(angle),
     };
@@ -548,18 +322,7 @@ export function createLayout(
       "link",
       forceLink<LayoutNode, LayoutEdge>(edges)
         .id((node) => node.id)
-        /*
-          Membership pulls firmly — it is the structure. The spine is a long slack
-          tether between neighbouring hubs, since the anchors already place them:
-          asking for a short distance here would drag the scale in on itself and
-          fight the anchoring. Sessions only suggest.
-
-          The chain is slacker still. On the timeline the calendar is the
-          structure, and a chain strong enough to hold films a fixed distance
-          apart would stretch a quiet month and compress a busy one — the two
-          things the map exists to tell apart. Its distance matters only inside a
-          knot, where it opens a day's films out from their shared point.
-        */
+        // Journey stops are fixed; these forces arrange attribute maps.
         .distance((edge) => LINK_DISTANCE[edge.kind])
         .strength((edge) => LINK_STRENGTH[edge.kind]),
     )
@@ -571,28 +334,17 @@ export function createLayout(
         .radius((node) => node.radius + 5)
         .iterations(2),
     )
-    /*
-      Every node is pulled toward its own anchor.
-
-      On a hub map: hubs hard, to their place on the axis; films only faintly, to
-      the region their hub occupies. The film pull is deliberately near-nothing —
-      membership links already hold a film to its hub, and the anchor is a second,
-      weaker claim on the same film, enough to bias a cluster toward its side of
-      the map and not enough to flatten it into a rosette around a point.
-
-      On the timeline, hard across and loose down: the horizontal axis is the
-      calendar and the vertical one is only room to breathe. See `PLACE_PULL_X`.
-    */
+    // Hub positions are firm; films are free to settle around them.
     .force(
       "x",
       forceX<LayoutNode>((node) => node.anchorX).strength((node) =>
-        thread ? PLACE_PULL_X : node.kind === "hub" ? 0.42 : 0.02,
+        node.kind === "hub" ? 0.42 : 0.02,
       ),
     )
     .force(
       "y",
       forceY<LayoutNode>((node) => node.anchorY).strength((node) =>
-        thread ? PLACE_PULL_Y : node.kind === "hub" ? 0.3 : 0.03,
+        node.kind === "hub" ? 0.3 : 0.03,
       ),
     )
     // A little heavier than default, so the map glides to rest instead of
@@ -606,20 +358,7 @@ export function createLayout(
     */
     .stop();
 
-  /*
-    Charge belongs to a hub map, and only to one. Hubs push hard so clusters read
-    as separate places rather than one mass; films push a little so a cluster is
-    a spread rather than a rosette.
-
-    The timeline gets none at all. Repulsion acts along the line between two films,
-    and on this map the nearest neighbour is almost always the next day — so that
-    line points along the calendar, and its horizontal component moves a film to a
-    date it was not watched on. That is not a cosmetic cost: the map's entire claim
-    is that x can be read as a date. Separation is left to `forceCollide`, which
-    cannot move two dots further apart than they actually overlap. Omitted rather
-    than set to zero: a zero-strength many-body force still builds a quadtree on
-    every tick.
-  */
+  // Journey geometry is authored; only hub maps need repulsion.
   if (!thread) {
     simulation.force(
       "charge",

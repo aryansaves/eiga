@@ -3,8 +3,8 @@
 > Your cinema, mapped.
 
 EIGA turns a Letterboxd export into an interactive map of your viewing history. It runs
-entirely in your browser: no account, no server, no upload, and no persistence of any
-kind. Closing the tab is the delete button.
+entirely in your browser: no account, no server, and no network upload. Your library stays in memory;
+closing the tab discards it. Only your light/dark appearance preference is saved.
 
 ## What it does
 
@@ -14,7 +14,7 @@ time:
 
 | axis            | shape                                                                    |
 | --------------- | ------------------------------------------------------------------------ |
-| **Watch dates** | a calendar timeline — every film on the day you saw it, one row per year  |
+| **Your journey** | a winding path through individual viewings, including rewatches and compressed gaps |
 | **Decade**      | films clustered by release decade, decades chained low-to-high           |
 | **Rating**      | films clustered by the score you gave them                               |
 | **Watch year**  | films clustered by the year you watched them                             |
@@ -22,7 +22,8 @@ time:
 
 Search travels the view to a match. Highlights (Liked, Rewatched) light a subset and let
 the rest recede. Any view can be saved as a PNG, composed in-browser and written straight
-to your downloads.
+to your downloads. A light/dark switch keeps the original graphite palette or uses
+a warm off-white surface with charcoal marks; PNGs use the selected palette.
 
 ### What a Letterboxd export actually contains
 
@@ -186,11 +187,8 @@ For the module-by-module map and the invariants that are easy to break, see
 These are enforced, not aspirational:
 
 - Everything is processed in the browser. No import ever crosses the network.
-- There is **no persistence at all** — no `localStorage`, `sessionStorage`, IndexedDB or
-  cookies. Verify it yourself:
-  ```bash
-  grep -rn "localStorage\|sessionStorage\|indexedDB\|document.cookie" src/
-  ```
+- Imported libraries are never persisted. `localStorage` holds only the `eiga-theme`
+  appearance preference; no films, viewing dates, ratings or reviews are saved there.
 - `profile.csv` is never parsed. `src/import/letterboxd.test.ts` asserts that its PII
   cannot reach a serialized library.
 - Import diagnostics carry file, row and field — never row *content*. No title, rating or

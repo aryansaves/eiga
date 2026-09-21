@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ORIGIN } from "./site.ts";
 
 /*
   The canonical origin, and the only value in this file that cannot be derived
@@ -19,8 +20,6 @@ import "./globals.css";
 
   If the domain changes, change this line and rebuild. Nothing else moves.
 */
-const ORIGIN = "https://eiga.pages.dev";
-
 /*
   Stated once and reused. Open Graph does not inherit from `<title>` or from
   `description` — a scraper reads the `og:` namespace or falls back to guessing,
@@ -89,7 +88,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       Costs nothing that `min-h-full` was buying: `main` is `overflow-hidden` at
       both widths, so the page has never grown past one screen either way.
     */
-    <html lang="en" className="h-full">
+    <html lang="en" className="h-full" data-theme="dark" suppressHydrationWarning>
+      <head>
+        {/* Restore appearance before paint; no imported data is stored. */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            if (localStorage.getItem("eiga-theme") === "light") {
+              document.documentElement.dataset.theme = "light";
+              document.querySelector('meta[name="theme-color"]')
+                ?.setAttribute("content", "#f3f1ea");
+            }
+          } catch {}
+        ` }} />
+      </head>
       <body className="bg-void text-paper flex h-full flex-col">
         {children}
       </body>
