@@ -14,6 +14,7 @@ export interface SavedMap {
   readonly revision: number;
   readonly updatedAt: number;
   readonly shared: boolean;
+  readonly shareUrl: string | null;
 }
 let csrfToken: string | null = null;
 
@@ -46,7 +47,7 @@ export async function getSavedMap() {
   return request<SavedMap | null>("/api/map");
 }
 export async function saveMap(library: Library, revision: number) {
-  return request<{ revision: number; updatedAt: number; shared: boolean }>("/api/map", {
+  return request<Omit<SavedMap, "snapshot">>("/api/map", {
     method: "PUT",
     body: JSON.stringify({ snapshot: snapshotFromLibrary(library), revision }),
   });

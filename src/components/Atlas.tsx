@@ -72,6 +72,7 @@ export function Atlas() {
   const [shareFailure, setShareFailure] = useState(false);
   const [shareStamp, setShareStamp] = useState<number | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
+  const importGeneration = useRef(0);
   const shareCancelled = useRef(false);
   const restorePending = useCallback((library: Library) => {
     setImported({ library, diagnostics: [], accepted: [], skipped: [] });
@@ -86,6 +87,10 @@ export function Atlas() {
   const lastSaved = account.lastSaved;
   const setSaveTarget = account.setSaveTarget;
   const signOutAccount = account.signOut;
+  useEffect(() => {
+    // A pending import must not replace a different account's saved atlas.
+    ++importGeneration.current;
+  }, [accountUserId]);
   /**
    * Whether the visitor asked to see the demo.
    *
@@ -298,12 +303,16 @@ export function Atlas() {
   const load = useCallback(
     async (files: readonly File[]) => {
       if (!sourceReady || readOnly) return;
+      const generation = ++importGeneration.current;
       const result = await importLetterboxdFiles([...files]);
+      if (generation !== importGeneration.current) return;
       setImported(result);
       setFocusedId(null);
-      setLocalOverride(false);
+      // An explicit upload replaces this account's atlas; restored drafts still
+      // require a choice, and revision conflicts remain protected by the server.
+      setLocalOverride(Boolean(accountUser && accountReady));
     },
-    [sourceReady, readOnly],
+    [sourceReady, readOnly, accountUser, accountReady],
   );
 
   /*

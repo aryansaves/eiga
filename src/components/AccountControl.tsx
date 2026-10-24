@@ -29,7 +29,7 @@ export function AccountControl({
   readonly sharedUrl: string | null;
   readonly sharedActive?: boolean;
   readonly onLogin: () => void;
-  readonly onShare: () => Promise<void>;
+  readonly onShare: () => Promise<string>;
   readonly onRevoke: () => Promise<void>;
   readonly onDelete: () => Promise<void>;
   readonly onLogout: () => Promise<void>;
@@ -119,9 +119,34 @@ export function AccountControl({
                   {sharedUrl}
                 </a>
               </div>
-            ) : sharedActive ? (
-              <p className="eiga-annotation mt-5">A public link is active.</p>
             ) : null}
+            {sharedActive && (
+              <>
+                <button
+                  type="button"
+                  className="eiga-button mt-3 w-full"
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      const url = sharedUrl ?? (await onShare());
+                      try {
+                        await navigator.clipboard.writeText(url);
+                      } catch {
+                        throw new Error(
+                          "Could not copy. Select the link above to copy it.",
+                        );
+                      }
+                    }, "Link copied.")
+                  }
+                >
+                  Copy link
+                </button>
+                <p className="text-paper-mid mt-4 text-sm leading-relaxed text-balance">
+                  New uploads update your atlas at this same link. Stop sharing makes it
+                  private again.
+                </p>
+              </>
+            )}
             {message && (
               <p role="status" className="eiga-annotation mt-4">
                 {message}
@@ -141,24 +166,16 @@ export function AccountControl({
                   Share this atlas
                 </button>
               )}
-              {sharedActive && !sharedUrl && (
-                <button
-                  type="button"
-                  className="eiga-button"
-                  disabled={!canShare || saving !== "idle" || busy}
-                  onClick={() => void act(onShare, "Share link ready.")}
-                >
-                  Get share link
-                </button>
-              )}
               {sharedActive && (
                 <button
                   type="button"
                   className="eiga-button"
                   disabled={saving === "working" || busy}
-                  onClick={() => void act(onRevoke, "Share link revoked.")}
+                  onClick={() =>
+                    void act(onRevoke, "Sharing stopped. Your atlas is private.")
+                  }
                 >
-                  Revoke link
+                  Stop sharing
                 </button>
               )}
               <button
@@ -209,8 +226,8 @@ export function AccountControl({
             </h2>
             <p className="text-paper-mid mt-4 text-sm leading-relaxed text-balance">
               Anyone with the link can view your saved films, watch dates, ratings, likes,
-              and review text. Reviews can be personal. The link stays available until you
-              revoke it or delete your saved atlas.
+              and review text. Reviews can be personal. New uploads update this same link
+              automatically. You can stop sharing or delete your saved atlas at any time.
             </p>
             {message && (
               <p role="status" className="eiga-annotation mt-4">
@@ -223,7 +240,9 @@ export function AccountControl({
                 className="eiga-button"
                 disabled={!canShare || busy}
                 onClick={() =>
-                  void act(onShare, "Share link created.").then((ok) => {
+                  void act(async () => {
+                    await onShare();
+                  }, "Share link created.").then((ok) => {
                     if (ok) setView("account");
                   })
                 }

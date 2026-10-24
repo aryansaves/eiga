@@ -101,7 +101,7 @@ export function useAccount(
         commitSession(nextSession);
         setNotice("");
         setSaved(result);
-        setShareUrl(null);
+        setShareUrl(result?.shareUrl ?? null);
         revisions.current.reset(
           { epoch: currentEpoch, userId: nextSession.user.id },
           result?.revision ?? 0,
@@ -160,6 +160,7 @@ export function useAccount(
       const latest = await getSavedMap();
       if (!mounted.current || epoch.current !== requestEpoch) return;
       setSaved(latest);
+      setShareUrl(latest?.shareUrl ?? null);
       setLastSaved(null);
       revisions.current.reset(owner, latest?.revision ?? 0);
       const activeTarget = target.current;
@@ -204,7 +205,9 @@ export function useAccount(
             revision: result.revision,
             updatedAt: result.updatedAt,
             shared: result.shared,
+            shareUrl: result.shareUrl,
           });
+          setShareUrl(result.shareUrl);
           setLastSaved({ userId: saveTarget.userId, library: saveTarget.library });
           lastSavedRef.current = {
             userId: saveTarget.userId,
@@ -308,8 +311,12 @@ export function useAccount(
     });
     if (requestEpoch === epoch.current && sessionRef.current.user?.id === userId) {
       setShareUrl(result.url);
-      setSaved((current) => (current ? { ...current, shared: true } : current));
+      setSaved((current) =>
+        current ? { ...current, shared: true, shareUrl: result.url } : current,
+      );
+      return result.url;
     }
+    throw new Error("Your account changed. Try again.");
   }, [saved]);
 
   const revoke = useCallback(async () => {
@@ -328,7 +335,9 @@ export function useAccount(
       await revokeShare();
       if (requestEpoch === epoch.current && sessionRef.current.user?.id === userId) {
         setShareUrl(null);
-        setSaved((current) => (current ? { ...current, shared: false } : current));
+        setSaved((current) =>
+          current ? { ...current, shared: false, shareUrl: null } : current,
+        );
       }
     });
   }, []);
