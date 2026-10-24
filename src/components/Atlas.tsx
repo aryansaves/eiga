@@ -148,18 +148,28 @@ export function Atlas() {
   */
   const importedUsable = imported !== null && imported.library.films.length > 0;
   const accountLibrary = useMemo(() => {
-    if (!accountUser || !savedMap || importedUsable || localOverride) return null;
+    if (
+      !sourceReady ||
+      shareRequested ||
+      !accountUser ||
+      !savedMap ||
+      importedUsable ||
+      localOverride
+    )
+      return null;
     try {
       return libraryFromSnapshot(savedMap.snapshot);
     } catch {
       return null;
     }
-  }, [accountUser, savedMap, importedUsable, localOverride]);
-  const usable = sharedLibrary !== null || accountLibrary !== null || importedUsable;
-  const library =
-    sharedLibrary ??
-    accountLibrary ??
-    (importedUsable && imported ? imported.library : demoAsked ? demo : NOTHING);
+  }, [sourceReady, shareRequested, accountUser, savedMap, importedUsable, localOverride]);
+  const usable = shareRequested
+    ? sharedLibrary !== null
+    : accountLibrary !== null || importedUsable;
+  const library = shareRequested
+    ? (sharedLibrary ?? NOTHING)
+    : (accountLibrary ??
+      (importedUsable && imported ? imported.library : demoAsked ? demo : NOTHING));
   /*
     The front door: no library of either kind. Not derived from `library === NOTHING`
     but from the same two facts that chose it, so the branch cannot drift from the
@@ -330,7 +340,15 @@ export function Atlas() {
   }, [router]);
   const signOut = useCallback(async () => {
     const current = accountLibrary;
-    await signOutAccount();
+    try {
+      await signOutAccount();
+    } catch (error) {
+      // A failed logout may refresh an unavailable session. Keep the visible
+      // library locally rather than losing it with the account response.
+      if (current && !importedUsable)
+        setImported({ library: current, diagnostics: [], accepted: [], skipped: [] });
+      throw error;
+    }
     if (current && !importedUsable)
       setImported({
         library: current,
@@ -380,19 +398,24 @@ export function Atlas() {
     }
   }, [active, films]);
 
-  const status = [
-    `${films} films`,
-    // Every grouping names its own unit — hub, day — and each takes a plain s.
-    `${groups} ${groups === 1 ? graph.groupKind : `${graph.groupKind}s`}`,
-    ...(undated > 0 ? [`${undated} undated`] : []),
-    sharedLibrary
-      ? "shared atlas"
-      : accountLibrary
-        ? "saved atlas"
-        : usable
-          ? "your library"
-          : "demo library",
-  ].join(" · ");
+  const status =
+    readOnly && !sharedLibrary
+      ? shareFailure
+        ? "Shared atlas unavailable"
+        : "Opening shared atlas"
+      : [
+          `${films} films`,
+          // Every grouping names its own unit — hub, day — and each takes a plain s.
+          `${groups} ${groups === 1 ? graph.groupKind : `${graph.groupKind}s`}`,
+          ...(undated > 0 ? [`${undated} undated`] : []),
+          sharedLibrary
+            ? "shared atlas"
+            : accountLibrary
+              ? "saved atlas"
+              : usable
+                ? "your library"
+                : "demo library",
+        ].join(" · ");
 
   const accountControls = (
     <AccountControl
@@ -623,7 +646,7 @@ export function Atlas() {
               <button
                 type="button"
                 onClick={() => void save()}
-                disabled={saving === "working"}
+                disabled={saving === "working" || (readOnly && !sharedLibrary)}
                 className="eiga-button"
               >
                 {saving === "working"
@@ -740,11 +763,13 @@ export function Atlas() {
               */}
               <p className="eiga-annotation text-balance">{status}</p>
               <p className="eiga-annotation mt-1.5">
-                {sharedLibrary
-                  ? `Shared ${shareStamp ? new Date(shareStamp).toLocaleDateString() : "publicly"} · reviews included`
-                  : account.session.user
-                    ? "Your atlas saves to your account"
-                    : "Your imported library stays in this browser"}
+                {readOnly && !sharedLibrary
+                  ? "Shared maps are read only"
+                  : sharedLibrary
+                    ? `Shared ${shareStamp ? new Date(shareStamp).toLocaleDateString() : "publicly"} · reviews included`
+                    : account.session.user
+                      ? "Your atlas saves to your account"
+                      : "Your imported library stays in this browser"}
               </p>
               {/*
                 One corner answers "how do I get out of this library", in both
