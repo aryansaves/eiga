@@ -17,10 +17,12 @@
  * and `landing` below.
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { AxisControl } from "@/components/AxisControl.tsx";
+import { AccountControl } from "@/components/AccountControl.tsx";
 import { FilterControl } from "@/components/FilterControl.tsx";
 import { GraphView } from "@/components/GraphView.tsx";
 import { ImportControl, ImportReport } from "@/components/ImportControl.tsx";
@@ -32,12 +34,15 @@ import { demoLibrary } from "@/domain/demo.ts";
 import { filtersFor, narrow, type FilterId } from "@/domain/filters.ts";
 import { searchFilms } from "@/domain/search.ts";
 import { observe } from "@/domain/stats.ts";
-import { emptyLibrary } from "@/domain/types.ts";
+import { emptyLibrary, type Library } from "@/domain/types.ts";
+import { libraryFromSnapshot } from "@/domain/snapshot.ts";
 import { axesFor, resolveAxis, type AxisId } from "@/graph/axes.ts";
 import { buildGraph, groupCount } from "@/graph/build.ts";
 import { buildThread, journeyObservation, unthreaded } from "@/graph/thread.ts";
 import { download, exportMapPng } from "@/viz/exportImage.ts";
 import { importLetterboxdFiles, type ImportResult } from "@/import/letterboxd.ts";
+import { getSharedMap } from "@/persistence/client.ts";
+import { useAccount } from "@/persistence/useAccount.ts";
 
 /** Whether a save is idle, in flight, or has just failed. */
 type SaveState = "idle" | "working" | "failed";
@@ -60,6 +65,27 @@ const NOTHING = emptyLibrary();
 export function Atlas() {
   const demo = useMemo(() => demoLibrary(), []);
   const [imported, setImported] = useState<ImportResult | null>(null);
+  const [localOverride, setLocalOverride] = useState(false);
+  const [sharedLibrary, setSharedLibrary] = useState<Library | null>(null);
+  const [shareRequested, setShareRequested] = useState(false);
+  const [sourceReady, setSourceReady] = useState(false);
+  const [shareFailure, setShareFailure] = useState(false);
+  const [shareStamp, setShareStamp] = useState<number | null>(null);
+  const [accountMessage, setAccountMessage] = useState("");
+  const shareCancelled = useRef(false);
+  const restorePending = useCallback((library: Library) => {
+    setImported({ library, diagnostics: [], accepted: [], skipped: [] });
+  }, []);
+  const saveConflict = useCallback(() => setLocalOverride(false), []);
+  const account = useAccount(restorePending, saveConflict);
+  const router = useRouter();
+  const accountUser = account.session.user;
+  const accountUserId = accountUser?.id;
+  const accountReady = account.ready;
+  const savedMap = account.saved;
+  const lastSaved = account.lastSaved;
+  const setSaveTarget = account.setSaveTarget;
+  const signOutAccount = account.signOut;
   /**
    * Whether the visitor asked to see the demo.
    *
@@ -87,6 +113,31 @@ export function Atlas() {
   /** The drawn map, handed up by GraphView so it can be exported as it appears. */
   const surfaceRef = useRef<SVGSVGElement | null>(null);
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("share");
+    queueMicrotask(() => {
+      setShareRequested(token !== null);
+      setSourceReady(true);
+    });
+    if (token === null) return;
+    shareCancelled.current = false;
+    let live = true;
+    void getSharedMap(token)
+      .then(({ library: shared, updatedAt }) => {
+        if (!live || shareCancelled.current) return;
+        setSharedLibrary(shared);
+        setShareStamp(updatedAt);
+        setShareFailure(false);
+      })
+      .catch(() => {
+        if (live && !shareCancelled.current) setShareFailure(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   /*
     Which of the three libraries is on screen.
 
@@ -95,8 +146,20 @@ export function Atlas() {
     otherwise to nothing at all. Either way the report explains why, so a failed
     import never silently looks like an empty library.
   */
-  const usable = imported !== null && imported.library.films.length > 0;
-  const library = usable && imported ? imported.library : demoAsked ? demo : NOTHING;
+  const importedUsable = imported !== null && imported.library.films.length > 0;
+  const accountLibrary = useMemo(() => {
+    if (!accountUser || !savedMap || importedUsable || localOverride) return null;
+    try {
+      return libraryFromSnapshot(savedMap.snapshot);
+    } catch {
+      return null;
+    }
+  }, [accountUser, savedMap, importedUsable, localOverride]);
+  const usable = sharedLibrary !== null || accountLibrary !== null || importedUsable;
+  const library =
+    sharedLibrary ??
+    accountLibrary ??
+    (importedUsable && imported ? imported.library : demoAsked ? demo : NOTHING);
   /*
     The front door: no library of either kind. Not derived from `library === NOTHING`
     but from the same two facts that chose it, so the branch cannot drift from the
@@ -104,7 +167,49 @@ export function Atlas() {
     pick, nothing to search, nothing to inspect and nothing to save — and the
     surface shows its graticule and nothing else.
   */
-  const landing = !usable && !demoAsked;
+  const readOnly = shareRequested;
+  const landing = sourceReady && !readOnly && !usable && !demoAsked;
+  const localLibrary = importedUsable ? imported!.library : null;
+  const ownsLocalTarget = Boolean(
+    lastSaved?.userId === accountUserId && lastSaved?.library === localLibrary,
+  );
+  const conflict = Boolean(
+    accountReady &&
+    accountUser &&
+    savedMap &&
+    importedUsable &&
+    !accountLibrary &&
+    !localOverride &&
+    !ownsLocalTarget,
+  );
+
+  useEffect(() => {
+    setSaveTarget(
+      localLibrary,
+      Boolean(
+        accountUser &&
+        sourceReady &&
+        accountReady &&
+        (!savedMap || localOverride || ownsLocalTarget) &&
+        !conflict &&
+        !readOnly &&
+        !accountLibrary,
+      ),
+    );
+  }, [
+    accountUser,
+    accountUserId,
+    accountReady,
+    sourceReady,
+    setSaveTarget,
+    localLibrary,
+    savedMap,
+    localOverride,
+    ownsLocalTarget,
+    conflict,
+    readOnly,
+    accountLibrary,
+  ]);
 
   /*
     Which axes this library can be drawn on, and which of them is actually in
@@ -121,7 +226,10 @@ export function Atlas() {
     the canonical film node id; later viewings link back through filmId.
   */
   const graph = useMemo(
-    () => (active.kind === "thread" ? buildThread(library) : buildGraph(library, active.strategy)),
+    () =>
+      active.kind === "thread"
+        ? buildThread(library)
+        : buildGraph(library, active.strategy),
     [library, active],
   );
   /*
@@ -130,7 +238,8 @@ export function Atlas() {
     switching axes cannot make EIGA assert something it would not otherwise.
   */
   const observation = useMemo(
-    () => active.kind === "thread" ? journeyObservation(graph) : observe(library, active.id),
+    () =>
+      active.kind === "thread" ? journeyObservation(graph) : observe(library, active.id),
     [library, active, graph],
   );
 
@@ -145,8 +254,12 @@ export function Atlas() {
     if (!focusedId) return null;
     if (graph.nodes.some((node) => node.id === focusedId)) return focusedId;
     // A rewatch stop becomes its film when switching to an attribute map.
-    const film = library.films.find((entry) => focusedId.startsWith(`viewing:${entry.id}:`));
-    return film ? graph.nodes.find((node) => node.filmId === film.id)?.id ?? null : null;
+    const film = library.films.find((entry) =>
+      focusedId.startsWith(`viewing:${entry.id}:`),
+    );
+    return film
+      ? (graph.nodes.find((node) => node.filmId === film.id)?.id ?? null)
+      : null;
   }, [graph, focusedId, library]);
 
   /*
@@ -160,7 +273,10 @@ export function Atlas() {
     query even while a highlight is narrowing it further.
   */
   const filters = useMemo(() => filtersFor(library), [library]);
-  const lit = useMemo(() => narrow(library, highlights, query), [library, highlights, query]);
+  const lit = useMemo(
+    () => narrow(library, highlights, query),
+    [library, highlights, query],
+  );
   const found = useMemo(() => searchFilms(library.films, query), [library, query]);
 
   const toggleHighlight = useCallback((id: FilterId) => {
@@ -169,11 +285,16 @@ export function Atlas() {
     );
   }, []);
 
-  const load = useCallback(async (files: readonly File[]) => {
-    const result = await importLetterboxdFiles([...files]);
-    setImported(result);
-    setFocusedId(null);
-  }, []);
+  const load = useCallback(
+    async (files: readonly File[]) => {
+      if (!sourceReady || readOnly) return;
+      const result = await importLetterboxdFiles([...files]);
+      setImported(result);
+      setFocusedId(null);
+      setLocalOverride(false);
+    },
+    [sourceReady, readOnly],
+  );
 
   /*
     Back to the front door. Clears the demo as well as the import: it is reached
@@ -185,7 +306,40 @@ export function Atlas() {
     setImported(null);
     setDemoAsked(false);
     setFocusedId(null);
+    setLocalOverride(true);
   }, []);
+
+  const useSaved = useCallback(() => {
+    if (!savedMap) return;
+    setImported(null);
+    setLocalOverride(false);
+    setAccountMessage("Showing your saved atlas.");
+  }, [savedMap]);
+  const keepLocal = useCallback(() => {
+    setLocalOverride(true);
+    setAccountMessage("Your local import will replace your saved atlas after it saves.");
+  }, []);
+  const exitShare = useCallback(() => {
+    shareCancelled.current = true;
+    setShareRequested(false);
+    setSourceReady(true);
+    setSharedLibrary(null);
+    setShareFailure(false);
+    setShareStamp(null);
+    router.push("/");
+  }, [router]);
+  const signOut = useCallback(async () => {
+    const current = accountLibrary;
+    await signOutAccount();
+    if (current && !importedUsable)
+      setImported({
+        library: current,
+        diagnostics: [],
+        accepted: [],
+        skipped: [],
+      });
+    setLocalOverride(false);
+  }, [signOutAccount, accountLibrary, importedUsable]);
 
   const films = library.films.length;
   /*
@@ -231,8 +385,43 @@ export function Atlas() {
     // Every grouping names its own unit — hub, day — and each takes a plain s.
     `${groups} ${groups === 1 ? graph.groupKind : `${graph.groupKind}s`}`,
     ...(undated > 0 ? [`${undated} undated`] : []),
-    usable ? "your library" : "demo library",
+    sharedLibrary
+      ? "shared atlas"
+      : accountLibrary
+        ? "saved atlas"
+        : usable
+          ? "your library"
+          : "demo library",
   ].join(" · ");
+
+  const accountControls = (
+    <AccountControl
+      user={account.session.user}
+      saving={account.saving}
+      sharedUrl={account.shareUrl}
+      sharedActive={Boolean(account.saved?.shared)}
+      notice={account.notice}
+      hasSaved={Boolean(account.saved)}
+      canShare={Boolean(
+        account.saved &&
+        !conflict &&
+        (!localOverride || ownsLocalTarget) &&
+        account.saving === "idle",
+      )}
+      onLogin={() => account.login(localLibrary)}
+      onShare={account.share}
+      onRevoke={account.revoke}
+      onDelete={async () => {
+        await account.remove(library);
+        if (usable && !sharedLibrary && !importedUsable) {
+          setImported({ library, diagnostics: [], accepted: [], skipped: [] });
+        }
+        setLocalOverride(false);
+      }}
+      onLogout={signOut}
+      onRetry={account.retry}
+    />
+  );
 
   return (
     <main
@@ -261,6 +450,7 @@ export function Atlas() {
       className="relative flex flex-1 flex-col overflow-hidden sm:block"
       onDragOver={(event) => {
         event.preventDefault();
+        if (readOnly || !sourceReady) return;
         setDropping(true);
       }}
       onDragLeave={(event) => {
@@ -271,6 +461,7 @@ export function Atlas() {
       onDrop={(event) => {
         event.preventDefault();
         setDropping(false);
+        if (readOnly || !sourceReady) return;
         const files = Array.from(event.dataTransfer.files);
         if (files.length > 0) void load(files);
       }}
@@ -290,15 +481,41 @@ export function Atlas() {
         */
         <>
           <div className="eiga-grid absolute inset-0" />
-          <div className="absolute top-7 right-7 z-20 sm:right-12">
-            <ThemeControl />
+          <div className="absolute top-7 right-7 z-20 flex flex-col items-end gap-2 sm:right-12">
+            <div className="flex items-start gap-2">
+              <ThemeControl />
+              {readOnly ? (
+                <button type="button" className="eiga-button" onClick={exitShare}>
+                  Open your atlas
+                </button>
+              ) : sourceReady ? (
+                accountControls
+              ) : (
+                <span className="eiga-annotation">Opening…</span>
+              )}
+            </div>
+            {sourceReady && account.session.user && (localLibrary || accountLibrary) && (
+              <p role="status" aria-live="polite" className="eiga-annotation">
+                {account.saving === "working"
+                  ? "Saving atlas…"
+                  : account.saving === "failed"
+                    ? "Save failed · retry in account"
+                    : "Atlas saved"}
+              </p>
+            )}
           </div>
           <Landing
             onFiles={load}
             onDemo={() => setDemoAsked(true)}
             report={imported}
             onReset={reset}
+            privacyText={
+              account.session.user
+                ? "Your import saves to your account. Public sharing is optional and includes review text."
+                : "Read here in this browser. Sign in to save your atlas; otherwise, closing the tab clears it."
+            }
           />
+          {!sourceReady && <StartupOverlay />}
         </>
       ) : (
         <>
@@ -344,6 +561,9 @@ export function Atlas() {
                   EIGA
                 </Link>
               </h1>
+              {readOnly && (
+                <p className="eiga-annotation mt-2">Shared atlas · read only</p>
+              )}
               {/*
                 Dropped on a phone, where this line would share 319px with the
                 wordmark and two controls. It is not lost: the landing sets it
@@ -360,7 +580,34 @@ export function Atlas() {
             */}
             <div className="pointer-events-auto col-start-2 row-start-1 flex flex-wrap items-start justify-end gap-2 justify-self-end max-sm:max-w-56 sm:row-span-2 sm:flex-col sm:items-end sm:gap-4 sm:text-right">
               <ThemeControl />
-              <ImportControl onFiles={load} hintClassName="max-sm:hidden" />
+              {readOnly ? (
+                <button type="button" className="eiga-button" onClick={exitShare}>
+                  Open your atlas
+                </button>
+              ) : sourceReady ? (
+                accountControls
+              ) : (
+                <span className="eiga-annotation">Opening…</span>
+              )}
+              {!readOnly && sourceReady && (
+                <ImportControl onFiles={load} hintClassName="max-sm:hidden" />
+              )}
+              {sourceReady &&
+                !readOnly &&
+                account.session.user &&
+                (localLibrary || accountLibrary) && (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="eiga-annotation basis-full text-right max-sm:text-left"
+                  >
+                    {account.saving === "working"
+                      ? "Saving atlas…"
+                      : account.saving === "failed"
+                        ? "Save failed · retry in account"
+                        : "Atlas saved"}
+                  </p>
+                )}
               {/*
                 The same hairline box as the import, and no quieter. It was an
                 unadorned line of annotation text on the grounds that saving is
@@ -389,8 +636,16 @@ export function Atlas() {
 
             <div className="pointer-events-auto col-span-2 col-start-1 row-start-2 sm:col-span-1">
               <AxisControl options={options} active={active.id} onSelect={setAxis} />
-              <SearchControl query={query} onQuery={setQuery} found={found?.size ?? null} />
-              <FilterControl options={filters} active={highlights} onToggle={toggleHighlight} />
+              <SearchControl
+                query={query}
+                onQuery={setQuery}
+                found={found?.size ?? null}
+              />
+              <FilterControl
+                options={filters}
+                active={highlights}
+                onToggle={toggleHighlight}
+              />
               {active.id === "diary" && (
                 <p className="eiga-annotation mt-3 max-w-sm text-balance">
                   Longer gaps get more room
@@ -406,6 +661,24 @@ export function Atlas() {
             of its parent, which without this resolves circularly in the map's
             favour and pushes the footer off the screen.
           */}
+          {readOnly && (shareFailure || !sharedLibrary) && (
+            <div className="bg-void/90 pointer-events-auto absolute inset-0 z-20 flex items-center justify-center px-7 text-center">
+              <div>
+                <p className="eiga-mark text-signal text-xs">PUBLIC ATLAS</p>
+                <p className="font-display mt-4 text-2xl">
+                  {shareFailure
+                    ? "This share link is unavailable."
+                    : "Opening the shared atlas…"}
+                </p>
+                {shareFailure && (
+                  <p className="eiga-annotation mt-3">The link may have been revoked.</p>
+                )}
+                <button type="button" className="eiga-button mt-6" onClick={exitShare}>
+                  Open your atlas
+                </button>
+              </div>
+            </div>
+          )}
           <div className="relative min-h-0 flex-1 sm:absolute sm:inset-0">
             <GraphView
               graph={graph}
@@ -466,7 +739,13 @@ export function Atlas() {
                 behind. Above `sm` it fits on one line and this does nothing.
               */}
               <p className="eiga-annotation text-balance">{status}</p>
-              <p className="eiga-annotation mt-1.5">Nothing leaves this browser</p>
+              <p className="eiga-annotation mt-1.5">
+                {sharedLibrary
+                  ? `Shared ${shareStamp ? new Date(shareStamp).toLocaleDateString() : "publicly"} · reviews included`
+                  : account.session.user
+                    ? "Your atlas saves to your account"
+                    : "Your imported library stays in this browser"}
+              </p>
               {/*
                 One corner answers "how do I get out of this library", in both
                 senses of it. After an import that is the report, which carries its
@@ -480,13 +759,15 @@ export function Atlas() {
                 built and is worth reading twice; leaving the demo discards nothing
                 and should not be dressed up as though it might.
               */}
-              {imported ? (
+              {readOnly ? (
+                <p className="eiga-annotation mt-4">Read only</p>
+              ) : imported ? (
                 <div className="mt-4">
                   <ImportReport result={imported} onReset={reset} />
                 </div>
               ) : (
                 <button type="button" onClick={reset} className="eiga-button mt-4">
-                  Leave the demo
+                  {accountLibrary ? "Close atlas" : "Leave the demo"}
                 </button>
               )}
             </div>
@@ -501,6 +782,71 @@ export function Atlas() {
           <p className="eiga-mark text-signal text-xs">Release to read</p>
         </div>
       )}
+      {conflict && account.saved && !readOnly && (
+        <LibraryChoiceDialog onSaved={useSaved} onLocal={keepLocal} />
+      )}
+      {account.notice && (
+        <p
+          role="status"
+          className="eiga-annotation pointer-events-none absolute right-7 bottom-3 z-30 sm:right-12"
+        >
+          {account.notice}
+        </p>
+      )}
+      {accountMessage && !conflict && (
+        <p
+          role="status"
+          className="eiga-annotation pointer-events-none absolute right-7 bottom-3 z-30 sm:right-12"
+        >
+          {accountMessage}
+        </p>
+      )}
+      {!sourceReady && !landing && <StartupOverlay />}
     </main>
+  );
+}
+
+function LibraryChoiceDialog({
+  onSaved,
+  onLocal,
+}: {
+  readonly onSaved: () => void;
+  readonly onLocal: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!dialog.current?.open) dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog ref={dialog} className="eiga-dialog text-paper backdrop:bg-void/75">
+      <div className="max-w-md p-6 sm:p-8">
+        <p className="eiga-mark text-signal text-xs">TWO ATLASES</p>
+        <h2 className="font-display mt-3 text-2xl">Choose which atlas to open</h2>
+        <p className="text-paper-mid mt-4 text-sm leading-relaxed">
+          You have a local import and an atlas saved to your account. Choose one to
+          continue. Keeping the local import will replace the saved atlas after it saves.
+        </p>
+        <div className="mt-6 flex flex-wrap gap-2">
+          <button type="button" className="eiga-button" onClick={onSaved}>
+            Open saved atlas
+          </button>
+          <button type="button" className="eiga-button" onClick={onLocal}>
+            Keep local import
+          </button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+function StartupOverlay() {
+  return (
+    <div
+      className="bg-void/90 pointer-events-auto absolute inset-0 z-40 flex items-center justify-center"
+      role="status"
+      aria-live="polite"
+    >
+      <p className="eiga-annotation">Opening your atlas…</p>
+    </div>
   );
 }

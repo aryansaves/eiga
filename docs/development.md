@@ -39,54 +39,35 @@ Never commit secrets, `.env` files, generated build output, or personal imported
 
 ## Deploying
 
-Cloudflare **Pages**, built from the connected GitHub repository. `next.config.ts`
-sets `output: "export"`, so `npm run build` writes finished HTML, CSS and JS into
-`out/` and Pages uploads that directory. There is no server, no route handler,
-and no Function.
+The frontend remains a Next.js static export into `out/`. The separate
+[eiga-persistent repository](https://github.com/aryansaves/eiga-persistent) owns
+Pages Functions, Google OAuth, D1 migrations, and the combined deployment workflow.
+It builds a pinned frontend commit and deploys the exported files and Functions
+on the same origin, keeping API calls and session cookies same-origin.
 
-Dashboard settings:
+Feature pushes on `codex/**` run frontend checks and dispatch backend `deploy.yml`.
+The frontend needs `EIGA_DEPLOY_DISPATCH_TOKEN` with Actions Write access to the
+backend repository. `STAGING_BACKEND_REF` selects the backend feature branch;
+its default is `codex/auth-persistence`. Backend pushes can deploy the same pair.
 
-| setting           | value               |
-| ----------------- | ------------------- |
-| build command     | `npm run build`     |
-| output directory  | `out`               |
-| root directory    | _(repository root)_ |
-| production branch | `main`              |
+Staging is `https://eiga-staging.pages.dev`; production is `https://eiga.pages.dev`.
+They share `eiga-db` but use fixed separate tables and migration ledgers. Table
+prefixes do not prevent one deployment accessing the other environment's tables.
 
-There is no deploy command. That is the whole difference from the Workers path:
-Pages takes the output directory from the dashboard and uploads it itself, where
-a Worker would need `wrangler deploy` and a config file naming the same folder.
+The release order is: test the feature pair on staging, merge frontend, pin its
+merged commit in the backend release manifest, test that pair, then merge backend.
+Frontend main does not deploy production. The backend manifest keeps production
+disabled until release. Turn off the existing production Pages automatic Git build
+when adopting this workflow, so frontend merges cannot bypass release orchestration.
 
-### Do not add a wrangler config file
+For full local development, build this repo and copy `out/` into the backend's
+ignored `public/`, configure its ignored `.dev.vars`, and run `npm run dev` there.
+Use `http://localhost:8788` for the app and API together. `next dev` alone still
+supports anonymous import/exploration but has no authentication API.
 
-This repo had one — `wrangler.jsonc`, added in `b991b3e` when the project was a
-Worker, removed when it became Pages. It should not come back, for three
-reasons:
-
-1. **Pages does not read a Workers config.** It looks for
-   `pages_build_output_dir`; a Workers-shaped file (`assets.directory`, or worse
-   `main`) has no key Pages recognises. Wrangler does not fail on this — it warns
-   that fields are missing and downgrades the file to local-development-only,
-   which is the bad outcome, because the file then looks authoritative and is
-   inert.
-2. **Adding `pages_build_output_dir` makes it worse, not better.** Once a Pages
-   project has a wrangler config with that key, the file becomes the source of
-   truth and the matching dashboard fields become uneditable. Build settings
-   would then live in two places, with the repo silently winning.
-3. **There is nothing to configure.** No Functions, no bindings, no environment,
-   no secrets — the whole app is static files and a browser.
-
-`out/` is gitignored on purpose: the builder produces it. Committing a build
-would put a stale copy of the app in the repo and change nothing about what
-Cloudflare serves.
-
-**Pages Web Analytics stays off.** It is not a dashboard-only report — enabling
-it injects a beacon script into every response, which would make a request leave
-the reader's browser before they have chosen to trust anything. EIGA's promise is
-that nothing leaves the browser, and that promise has to hold at the edge too.
-
-`wrangler` is deliberately not a dependency, and on this path nothing fetches it
-either. The build runs `next build` and Pages does the rest.
+Do not put Google secrets in this repo or `NEXT_PUBLIC_` variables. Runtime
+configuration and Wrangler belong to the backend. Neither repo tracks generated
+build output. Pages Web Analytics stays off.
 
 ### Why `.nvmrc` exists
 

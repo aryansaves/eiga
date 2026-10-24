@@ -35,6 +35,7 @@ Detail surfaces
 ## Domain model
 
 Start with explicit types such as:
+
 - Movie
 - Person
 - Genre
@@ -69,7 +70,9 @@ React owns selection, filters, search, mode, panels, and other application state
 
 ## Storage
 
-V1 should work without persistence. Add IndexedDB only when a concrete UX requirement demands reload persistence or caching.
+Anonymous use works without persistence. Optional Google sign-in saves a versioned
+normalized library through same-origin Pages Functions. Maps/Sets become entry
+arrays at the transport boundary; graph coordinates and metrics remain derived.
 
 ## External metadata
 
@@ -77,17 +80,16 @@ TMDB is optional future enrichment. Use stable identifiers, cache results, respe
 
 ## Backend
 
-None required for V1.
-
-Potential future backend needs:
-- public share links
-- saved universes
-- accounts
-- collaborative features
+The separate eiga-persistent repository owns Google OAuth, opaque sessions, map
+storage, revocable public links, and Pages deployments. CI assembles it with this
+static frontend at a pinned commit. One D1 database uses fixed staging/production
+table names and independent migration ledgers. Share reads expose the latest saved
+library including reviews, with no account identity fields.
 
 ## Performance
 
 Optimize based on real measurements:
+
 - avoid unnecessary React renders during D3 simulation
 - use selective labels
 - reduce visual complexity while zoomed out

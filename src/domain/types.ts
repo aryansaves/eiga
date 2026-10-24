@@ -57,7 +57,8 @@ export interface Library {
   readonly ratings: ReadonlyMap<FilmId, number>;
   /**
    * The user's own review text. Highest-sensitivity content in the export:
-   * never logged, never sent anywhere, always rendered as escaped text.
+   * never logged, saved only after sign-in, included in public shares only after
+   * confirmation, and always rendered as escaped text.
    */
   readonly reviews: ReadonlyMap<FilmId, string>;
   /**

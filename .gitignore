@@ -9,12 +9,8 @@ next-env.d.ts
 # Vercel
 .vercel/
 
-# Cloudflare. There is deliberately no wrangler config in this repo — Pages reads
-# its build settings from the dashboard, and a committed one would either be inert
-# or would silently take over those fields. See docs/development.md. These two are
-# per-machine artefacts of running wrangler locally anyway: `.wrangler/` is a dev
-# cache, and `.dev.vars` is its secrets file, which the Next.js auto-config
-# creates unasked.
+# Cloudflare runtime configuration lives in the separate eiga-persistent repo.
+# Keep local caches and secrets out of this static frontend checkout.
 .wrangler/
 .dev.vars
 .dev.vars.*

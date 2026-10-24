@@ -4,6 +4,8 @@ Apply these rules to import, parsing, domain model, API, storage, and analytics 
 
 - Treat imported Letterboxd exports as user-owned personal data.
 - Keep V1 processing local to the browser.
+- Parse raw exports locally. Optional signed-in persistence sends only normalized
+  library data to EIGA's same-origin API; share links intentionally include reviews.
 - Do not transmit raw imports to third parties.
 - Never put reviews or full imported rows into logs.
 - Validate file shape, dates, ratings, identifiers, and text before use.

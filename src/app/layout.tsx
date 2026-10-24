@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import type { ReactNode } from "react";
 import "./globals.css";
 import { ORIGIN } from "./site.ts";
 
@@ -55,7 +56,7 @@ export const metadata: Metadata = {
     at all — with the absolute URL resolved through `metadataBase`.
   */
   verification: {
-    google: "H_zjVGoGKD6hl7smyrCc8WOQLSFCPjdAfNxVssaD_w0"
+    google: "H_zjVGoGKD6hl7smyrCc8WOQLSFCPjdAfNxVssaD_w0",
   },
   twitter: {
     card: "summary_large_image",
@@ -75,7 +76,7 @@ export const viewport: Viewport = {
   themeColor: "#101114",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { readonly children: ReactNode }) {
   return (
     /*
       A definite height, all the way down, and `h-full` rather than `min-h-full`
@@ -94,7 +95,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className="h-full" data-theme="dark" suppressHydrationWarning>
       <head>
         {/* Restore appearance before paint; no imported data is stored. */}
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
           try {
             if (localStorage.getItem("eiga-theme") === "light") {
               document.documentElement.dataset.theme = "light";
@@ -102,11 +105,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 ?.setAttribute("content", "#f3f1ea");
             }
           } catch {}
-        ` }} />
+        `,
+          }}
+        />
       </head>
-      <body className="bg-void text-paper flex h-full flex-col">
-        {children}
-      </body>
+      <body className="bg-void text-paper flex h-full flex-col">{children}</body>
     </html>
   );
 }

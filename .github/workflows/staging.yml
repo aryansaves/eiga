@@ -1,0 +1,47 @@
+name: Frontend checks and staging
+
+on:
+  push:
+    branches: ["codex/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build -- --webpack
+
+  staging:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request a combined staging deployment
+        env:
+          DISPATCH_TOKEN: ${{ secrets.EIGA_DEPLOY_DISPATCH_TOKEN }}
+          FRONTEND_COMMIT: ${{ github.sha }}
+          BACKEND_REF: ${{ vars.STAGING_BACKEND_REF || 'codex/auth-persistence' }}
+        run: |
+          node --input-type=module <<'NODE'
+          if (!process.env.DISPATCH_TOKEN) throw new Error('Configure EIGA_DEPLOY_DISPATCH_TOKEN with Actions Write access to eiga-persistent.');
+          const response = await fetch('https://api.github.com/repos/aryansaves/eiga-persistent/actions/workflows/deploy.yml/dispatches', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.DISPATCH_TOKEN}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: process.env.BACKEND_REF, inputs: { frontend_ref: process.env.FRONTEND_COMMIT, backend_ref: process.env.BACKEND_REF } }),
+          });
+          if (!response.ok) throw new Error(`Staging dispatch failed (${response.status}). Check token permissions and the backend workflow on main.`);
+          console.log('Combined staging deployment requested. Track the EIGA deployment workflow in eiga-persistent.');
+          NODE

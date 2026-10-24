@@ -2,9 +2,10 @@
 
 > Your cinema, mapped.
 
-EIGA turns a Letterboxd export into an interactive map of your viewing history. It runs
-entirely in your browser: no account, no server, and no network upload. Your library stays in memory;
-closing the tab discards it. Only your light/dark appearance preference is saved.
+EIGA turns a Letterboxd export into an interactive map of your viewing history.
+Imports and graph construction run in your browser. Sign in with Google to save
+your normalized library and share a link to its latest version, including reviews.
+You can also use EIGA locally without an account.
 
 ## What it does
 
@@ -12,13 +13,13 @@ You arrive on an empty map. Drop in your Letterboxd export `.zip` — or the CSV
 inside it — and EIGA draws your library as a graph you can explore along one axis at a
 time:
 
-| axis            | shape                                                                    |
-| --------------- | ------------------------------------------------------------------------ |
+| axis             | shape                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------- |
 | **Your journey** | a winding path through individual viewings, including rewatches and compressed gaps |
-| **Decade**      | films clustered by release decade, decades chained low-to-high           |
-| **Rating**      | films clustered by the score you gave them                               |
-| **Watch year**  | films clustered by the year you watched them                             |
-| **Director**    | demo library only — see below                                            |
+| **Decade**       | films clustered by release decade, decades chained low-to-high                      |
+| **Rating**       | films clustered by the score you gave them                                          |
+| **Watch year**   | films clustered by the year you watched them                                        |
+| **Director**     | demo library only — see below                                                       |
 
 Search travels the view to a match. Highlights (Liked, Rewatched) light a subset and let
 the rest recede. Any view can be saved as a PNG, composed in-browser and written straight
@@ -56,15 +57,15 @@ follow "Or see a demo library" for an authored 37-film library that exercises ev
 
 ## Scripts
 
-| script                 | runs                            | notes                                                          |
-| ---------------------- | ------------------------------- | -------------------------------------------------------------- |
-| `npm run dev`          | `next dev`                      | Turbopack dev server with HMR                                  |
-| `npm run build`        | `next build`                    | static export into `out/`; also type-checks                    |
-| `npm run lint`         | `eslint`                        | flat config — **not** `next lint`, which does not exist here   |
-| `npm run typecheck`    | `tsc --noEmit`                  | `strict` is on                                                 |
+| script                 | runs                             | notes                                                          |
+| ---------------------- | -------------------------------- | -------------------------------------------------------------- |
+| `npm run dev`          | `next dev`                       | Turbopack dev server with HMR                                  |
+| `npm run build`        | `next build`                     | static export into `out/`; also type-checks                    |
+| `npm run lint`         | `eslint`                         | flat config — **not** `next lint`, which does not exist here   |
+| `npm run typecheck`    | `tsc --noEmit`                   | `strict` is on                                                 |
 | `npm test`             | `node --test 'src/**/*.test.ts'` | 136 tests, no test framework                                   |
-| `npm run format`       | `prettier --write .`            | see [the Prettier caveat](#the-prettier-caveat) before running  |
-| `npm run format:check` | `prettier --check .`            | currently fails; see below                                     |
+| `npm run format`       | `prettier --write .`             | see [the Prettier caveat](#the-prettier-caveat) before running |
+| `npm run format:check` | `prettier --check .`             | currently fails; see below                                     |
 
 `npm start` (`next start`) is inherited from the Next.js template and does **not** work:
 `output: "export"` produces static files, so there is no server to start. Serve `out/`
@@ -76,31 +77,31 @@ The four gates that matter before a commit are `typecheck`, `lint`, `test`, and 
 
 ### Runtime dependencies
 
-| package             | why it is here                                                                                                        |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `next` `16.3.1`     | App Router and the static exporter. No server features are used — see [Deployment](#deployment).                      |
-| `react` / `react-dom` `19.2.8` | UI. Every component is `"use client"`; React owns selection and filter state, never graph coordinates.      |
-| `d3` `^7.9.0`       | force simulation, zoom/pan, and selection. See the [d3 caveat](#the-d3-caveat).                                       |
-| `papaparse` `^5.6.0` | CSV parsing. Handles quoted fields, embedded newlines and the BOM that Letterboxd exports carry.                      |
+| package                        | why it is here                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `next` `16.3.1`                | App Router and the static exporter. No server features are used — see [Deployment](#deployment).       |
+| `react` / `react-dom` `19.2.8` | UI. Every component is `"use client"`; React owns selection and filter state, never graph coordinates. |
+| `d3` `^7.9.0`                  | force simulation, zoom/pan, and selection. See the [d3 caveat](#the-d3-caveat).                        |
+| `papaparse` `^5.6.0`           | CSV parsing. Handles quoted fields, embedded newlines and the BOM that Letterboxd exports carry.       |
 
 There is deliberately no ZIP library: `src/import/zip.ts` reads the archive directly,
 because the export uses stored/deflated entries that `DecompressionStream` already handles.
 
 ### Dev dependencies
 
-| package                          | what it does                                                                                                                                    |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `typescript` `^5`                | The language. `tsc --noEmit` is the type gate; nothing transpiles TypeScript for the browser except Next itself.                                 |
-| `@types/node`                    | Types for `node:test`, `node:assert`, `node:fs` used by the test files.                                                                          |
-| `@types/react`, `@types/react-dom` | React 19 types.                                                                                                                                |
-| `@types/d3`                      | d3 ships no types of its own. Without this, every d3 import is `any` and `avoid any` becomes unenforceable.                                      |
-| `@types/papaparse`               | Same reason for Papa Parse.                                                                                                                     |
-| `eslint` `^9`                    | Flat config in `eslint.config.mjs`. Invoked as bare `eslint` — the `next lint` wrapper is gone in Next 16.                                       |
-| `eslint-config-next` `16.3.1`    | React-hooks and Next-specific rules. Pinned to the exact Next version on purpose; they move together.                                            |
-| `tailwindcss` `^4`               | Tailwind v4 is **CSS-first**: there is no `tailwind.config.js`. Design tokens live in an `@theme` block in `src/app/globals.css`.                 |
-| `@tailwindcss/postcss`           | The PostCSS plugin that compiles those directives, wired up in `postcss.config.mjs`. Tailwind v4 no longer works through the old `tailwindcss` plugin. |
-| `prettier` `^3.9.6`              | Formatter. Not currently enforced — see below.                                                                                                   |
-| `prettier-plugin-tailwindcss` `^0.8.1` | Sorts Tailwind class strings into canonical order. This is why `className` values read in a consistent sequence throughout.                |
+| package                                | what it does                                                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `typescript` `^5`                      | The language. `tsc --noEmit` is the type gate; nothing transpiles TypeScript for the browser except Next itself.                                       |
+| `@types/node`                          | Types for `node:test`, `node:assert`, `node:fs` used by the test files.                                                                                |
+| `@types/react`, `@types/react-dom`     | React 19 types.                                                                                                                                        |
+| `@types/d3`                            | d3 ships no types of its own. Without this, every d3 import is `any` and `avoid any` becomes unenforceable.                                            |
+| `@types/papaparse`                     | Same reason for Papa Parse.                                                                                                                            |
+| `eslint` `^9`                          | Flat config in `eslint.config.mjs`. Invoked as bare `eslint` — the `next lint` wrapper is gone in Next 16.                                             |
+| `eslint-config-next` `16.3.1`          | React-hooks and Next-specific rules. Pinned to the exact Next version on purpose; they move together.                                                  |
+| `tailwindcss` `^4`                     | Tailwind v4 is **CSS-first**: there is no `tailwind.config.js`. Design tokens live in an `@theme` block in `src/app/globals.css`.                      |
+| `@tailwindcss/postcss`                 | The PostCSS plugin that compiles those directives, wired up in `postcss.config.mjs`. Tailwind v4 no longer works through the old `tailwindcss` plugin. |
+| `prettier` `^3.9.6`                    | Formatter. Not currently enforced — see below.                                                                                                         |
+| `prettier-plugin-tailwindcss` `^0.8.1` | Sorts Tailwind class strings into canonical order. This is why `className` values read in a consistent sequence throughout.                            |
 
 Note what is **absent**: no Jest, Vitest, Mocha, ts-node, tsx, or Babel. Tests run on
 Node's built-in runner against the TypeScript sources directly.
@@ -127,7 +128,7 @@ corrected to describe the codebase's actual style (double quotes, 90 columns) ra
 contradicting it, which brought the count down from 55 to 41, but the gate is still red.
 
 Do not run `npm run format` casually: it will reformat 41 files in one commit. Prettier does
-not reflow comment *prose*, so the long explanatory comments survive intact, but code
+not reflow comment _prose_, so the long explanatory comments survive intact, but code
 wrapping and line breaks will move. Pick one deliberately:
 
 - run `npm run format` once as its own isolated commit, then enforce it from then on;
@@ -186,12 +187,16 @@ For the module-by-module map and the invariants that are easy to break, see
 
 These are enforced, not aspirational:
 
-- Everything is processed in the browser. No import ever crosses the network.
-- Imported libraries are never persisted. `localStorage` holds only the `eiga-theme`
-  appearance preference; no films, viewing dates, ratings or reviews are saved there.
+- Raw exports are parsed in the browser and never uploaded. Signed-in users save
+  their normalized films, viewing dates, ratings, likes, and reviews to EIGA's D1 storage.
+- Anonymous imports remain in memory. `localStorage` holds only `eiga-theme`.
+  If a blocked login popup requires a redirect, the pending normalized import is
+  temporarily preserved in this tab's `sessionStorage` and cleared on return.
+- Sharing publishes the latest saved library, including review text, to anyone
+  holding the link. Revoking the link or deleting the saved map removes public access.
 - `profile.csv` is never parsed. `src/import/letterboxd.test.ts` asserts that its PII
   cannot reach a serialized library.
-- Import diagnostics carry file, row and field — never row *content*. No title, rating or
+- Import diagnostics carry file, row and field — never row _content_. No title, rating or
   review can reach a log.
 - No analytics, of any kind, including host-provided analytics.
 
@@ -199,18 +204,20 @@ See [`.claude/rules/data-and-privacy.md`](.claude/rules/data-and-privacy.md).
 
 ## Deployment
 
-The app has no server features: no route handlers, no middleware, no `next/image`, no
-`next/font`, no cookies. `next.config.ts` sets `output: "export"`, so `npm run build`
-emits a fully static site into `out/` — deployable to any static host.
+`next.config.ts` sets `output: "export"`, so `npm run build` emits the frontend into
+`out/`. Authentication and saved/share APIs are Cloudflare Pages Functions maintained
+in the separate [eiga-persistent repository](https://github.com/aryansaves/eiga-persistent).
+Its workflow builds this frontend at a pinned commit and deploys both together on one origin.
 
 ```bash
 npm run build   # → out/
 ```
 
-Recommended: Cloudflare Pages, with host analytics turned off. Netlify or GitHub Pages work
-equally well — but note that a GitHub Pages *project* site serves from
-`aryansaves.github.io/eiga/`, which additionally requires `basePath` and `assetPrefix` in
-`next.config.ts`. Cloudflare Pages and Netlify serve from a root origin and need neither.
+Cloudflare Pages serves production at `eiga.pages.dev` and the active test version at
+`eiga-staging.pages.dev`. Both use `eiga-db`, with separate staging/production tables.
+Feature pushes dispatch the backend staging workflow; frontend main merges alone
+do not release production. See [development](docs/development.md) and the backend
+README for setup, release ordering, and database migration details. Analytics stays off.
 
 ### The one value that must be set by hand
 
@@ -218,7 +225,7 @@ equally well — but note that a GitHub Pages *project* site serves from
 it is the only thing here that cannot be derived. A static export writes its HTML once, at
 build time, with no request to learn a host from — so every absolute URL in the metadata is
 frozen at whatever `metadataBase` resolves to. Left unset, Next falls back to
-`http://localhost:3000` and bakes *that* into production, so a shared link asks the reader's
+`http://localhost:3000` and bakes _that_ into production, so a shared link asks the reader's
 own machine for the preview image. It fails silently and is invisible locally, because
 localhost resolves fine on the machine that built the file.
 
@@ -233,11 +240,11 @@ resolves them against its own origin. Only the exported build reflects `ORIGIN`.
 
 ### Icons and link previews
 
-| file                          | emits                                        |
-| ----------------------------- | -------------------------------------------- |
-| `src/app/icon.svg`            | the favicon                                  |
-| `src/app/apple-icon.png`      | the iOS home-screen icon, 180×180            |
-| `src/app/opengraph-image.png` | `og:image`, 1200×630, with width/height/type |
+| file                          | emits                                                       |
+| ----------------------------- | ----------------------------------------------------------- |
+| `src/app/icon.svg`            | the favicon                                                 |
+| `src/app/apple-icon.png`      | the iOS home-screen icon, 180×180                           |
+| `src/app/opengraph-image.png` | `og:image`, 1200×630, with width/height/type                |
 | `src/app/twitter-image.png`   | `twitter:image` (X would otherwise fall back to `og:image`) |
 
 These are Next file conventions — no `<meta>` tags are hand-written, and no `icons` entry is
@@ -259,22 +266,20 @@ anchor at full `signal` with its edge lit in `signal-deep`.
 
 ## Docs
 
-| file                                            | contents                                        |
-| ----------------------------------------------- | ----------------------------------------------- |
-| [`CLAUDE.md`](CLAUDE.md)                        | product promise, design north star, graph topology rules, engineering constraints |
-| [`docs/product.md`](docs/product.md)            | what EIGA is and is not                         |
-| [`docs/codebase.md`](docs/codebase.md)          | module map and load-bearing invariants          |
-| [`docs/architecture.md`](docs/architecture.md)  | original architectural brief (pre-implementation) |
-| [`docs/data-contract.md`](docs/data-contract.md) | expected import shape                          |
-| [`docs/brand.md`](docs/brand.md)                | visual language                                 |
-| [`docs/decisions.md`](docs/decisions.md)        | ADR log                                         |
-| [`docs/development.md`](docs/development.md)    | working conventions                             |
+| file                                             | contents                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| [`CLAUDE.md`](CLAUDE.md)                         | product promise, design north star, graph topology rules, engineering constraints |
+| [`docs/product.md`](docs/product.md)             | what EIGA is and is not                                                           |
+| [`docs/codebase.md`](docs/codebase.md)           | module map and load-bearing invariants                                            |
+| [`docs/architecture.md`](docs/architecture.md)   | original architectural brief (pre-implementation)                                 |
+| [`docs/data-contract.md`](docs/data-contract.md) | expected import shape                                                             |
+| [`docs/brand.md`](docs/brand.md)                 | visual language                                                                   |
+| [`docs/decisions.md`](docs/decisions.md)         | ADR log                                                                           |
+| [`docs/development.md`](docs/development.md)     | working conventions                                                               |
 
 ## Status
 
-Early-stage. The import → normalize → graph → explore → inspect slice works end to end
-against real exports; 136 tests pass; the production build is clean.
-
-Known gaps: the chrome is cramped below roughly 520px and has no designed phone layout;
-long watch histories (twenty-plus years) produce a timeline taller than the initial frame.
-Shareable links are deliberately deferred to v2, after deployment.
+The import → normalize → graph → explore → inspect slice is extended with optional
+Google authentication, account persistence, and revocable links to the latest saved map.
+Production authentication remains disabled in the backend release manifest until
+the assembled frontend/backend version has been tested on staging and approved for release.

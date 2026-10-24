@@ -31,6 +31,7 @@
 
 import { ImportControl, ImportReport } from "@/components/ImportControl.tsx";
 import type { ImportResult } from "@/import/letterboxd.ts";
+import type { ReactNode } from "react";
 
 export interface LandingProps {
   readonly onFiles: (files: readonly File[]) => void;
@@ -46,9 +47,18 @@ export interface LandingProps {
    */
   readonly report: ImportResult | null;
   readonly onReset: () => void;
+  readonly accountControl?: ReactNode;
+  readonly privacyText?: string;
 }
 
-export function Landing({ onFiles, onDemo, report, onReset }: LandingProps) {
+export function Landing({
+  onFiles,
+  onDemo,
+  report,
+  onReset,
+  accountControl,
+  privacyText,
+}: LandingProps) {
   return (
     /*
       The wash is the same device the loaded map uses behind its top and bottom
@@ -65,9 +75,8 @@ export function Landing({ onFiles, onDemo, report, onReset }: LandingProps) {
         <p className="eiga-annotation mt-4">Your cinema, mapped.</p>
 
         <p className="font-display text-paper mt-9 text-xl leading-snug text-balance sm:text-2xl">
-          Your Letterboxd export becomes a map: every film you have seen, placed on
-          the day you saw it — and redrawn by decade, by rating, by the year you
-          watched it.
+          Your Letterboxd export becomes a map: every film you have seen, placed on the
+          day you saw it — and redrawn by decade, by rating, by the year you watched it.
         </p>
 
         {/*
@@ -77,8 +86,8 @@ export function Landing({ onFiles, onDemo, report, onReset }: LandingProps) {
           fine print, which is the opposite of what it is for.
         */}
         <p className="text-paper-mid mt-6 text-sm leading-relaxed">
-          Read here, in this browser. Nothing is uploaded, there is no account, and
-          closing the tab is the delete button.
+          {privacyText ??
+            "Read here, in this browser. Sign in to save your atlas to your account; otherwise, closing the tab clears it."}
         </p>
 
         <div className="mt-9">
@@ -115,6 +124,7 @@ export function Landing({ onFiles, onDemo, report, onReset }: LandingProps) {
             Or see a demo library
           </button>
         </p>
+        {accountControl && <div className="mt-6">{accountControl}</div>}
       </div>
     </div>
   );
