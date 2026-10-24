@@ -17,7 +17,7 @@
  * and `landing` below.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -517,15 +517,6 @@ export function Atlas() {
                 <span className="eiga-annotation">Opening…</span>
               )}
             </div>
-            {sourceReady && account.session.user && (localLibrary || accountLibrary) && (
-              <p role="status" aria-live="polite" className="eiga-annotation">
-                {account.saving === "working"
-                  ? "Saving atlas…"
-                  : account.saving === "failed"
-                    ? "Save failed · retry in account"
-                    : "Atlas saved"}
-              </p>
-            )}
           </div>
           <Landing
             onFiles={load}
@@ -562,7 +553,7 @@ export function Atlas() {
             highlight rows with `mt-3`, so the vertical rhythm is already stated
             once, in the controls themselves.
           */}
-          <div className="from-void via-void/85 border-rule pointer-events-none relative z-10 grid shrink-0 grid-cols-[1fr_auto] gap-x-6 border-b px-7 pt-7 pb-5 sm:absolute sm:inset-x-0 sm:top-0 sm:gap-x-8 sm:border-0 sm:bg-linear-to-b sm:to-transparent sm:px-12 sm:pb-20">
+          <div className="from-void via-void/85 border-rule pointer-events-none relative z-10 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-b px-7 pt-7 pb-5 sm:absolute sm:inset-x-0 sm:top-0 sm:gap-x-8 sm:border-0 sm:bg-linear-to-b sm:to-transparent sm:px-12 sm:pb-20">
             <div className="col-start-1 row-start-1">
               {/*
                 The same heading the landing carries, at caption size. An `h1` in
@@ -596,42 +587,25 @@ export function Atlas() {
               <p className="eiga-annotation mt-2 max-sm:hidden">Your cinema, mapped.</p>
             </div>
 
-            {/*
-              The two acts. A row on a phone, where the grid gives them one line
-              beside the wordmark; a right-aligned stack above `sm`, which is the
-              corner they have always occupied.
-            */}
-            <div className="pointer-events-auto col-start-2 row-start-1 flex flex-wrap items-start justify-end gap-2 justify-self-end max-sm:max-w-56 sm:row-span-2 sm:flex-col sm:items-end sm:gap-4 sm:text-right">
-              <ThemeControl />
-              {readOnly ? (
-                <button type="button" className="eiga-button" onClick={exitShare}>
-                  Open your atlas
-                </button>
-              ) : sourceReady ? (
-                accountControls
-              ) : (
-                <span className="eiga-annotation">Opening…</span>
-              )}
-              {!readOnly && sourceReady && (
-                <ImportControl onFiles={load} hintClassName="max-sm:hidden" />
-              )}
-              {sourceReady &&
-                !readOnly &&
-                account.session.user &&
-                (localLibrary || accountLibrary) && (
-                  <p
-                    role="status"
-                    aria-live="polite"
-                    className="eiga-annotation basis-full text-right max-sm:text-left"
-                  >
-                    {account.saving === "working"
-                      ? "Saving atlas…"
-                      : account.saving === "failed"
-                        ? "Save failed · retry in account"
-                        : "Atlas saved"}
-                  </p>
+            {/* Keep account controls and file actions in two contained rows. */}
+            <div className="pointer-events-auto col-start-2 row-start-1 flex min-w-0 flex-col items-end gap-3 justify-self-end sm:row-span-2">
+              <div className="flex max-w-full flex-wrap justify-end gap-2">
+                <ThemeControl />
+                {readOnly ? (
+                  <button type="button" className="eiga-button" onClick={exitShare}>
+                    Open your atlas
+                  </button>
+                ) : sourceReady ? (
+                  accountControls
+                ) : (
+                  <span className="eiga-annotation">Opening…</span>
                 )}
-              {/*
+              </div>
+              <div className="flex max-w-full flex-wrap justify-end gap-2">
+                {!readOnly && sourceReady && (
+                  <ImportControl onFiles={load} hintClassName="hidden" />
+                )}
+                {/*
                 The same hairline box as the import, and no quieter. It was an
                 unadorned line of annotation text on the grounds that saving is
                 something you do after the map has told you something rather than the
@@ -643,18 +617,19 @@ export function Atlas() {
                 Its label still doubles as the only status report; the box simply grows
                 to hold it.
               */}
-              <button
-                type="button"
-                onClick={() => void save()}
-                disabled={saving === "working" || (readOnly && !sharedLibrary)}
-                className="eiga-button"
-              >
-                {saving === "working"
-                  ? "Saving…"
-                  : saving === "failed"
-                    ? "Could not save — try again"
-                    : "Save this map"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={saving === "working" || (readOnly && !sharedLibrary)}
+                  className="eiga-button"
+                >
+                  {saving === "working"
+                    ? "Saving…"
+                    : saving === "failed"
+                      ? "Could not save — try again"
+                      : "Save image"}
+                </button>
+              </div>
             </div>
 
             <div className="pointer-events-auto col-span-2 col-start-1 row-start-2 sm:col-span-1">
@@ -762,13 +737,23 @@ export function Atlas() {
                 behind. Above `sm` it fits on one line and this does nothing.
               */}
               <p className="eiga-annotation text-balance">{status}</p>
-              <p className="eiga-annotation mt-1.5">
+              <p
+                role={account.session.user && !readOnly ? "status" : undefined}
+                aria-live={account.session.user && !readOnly ? "polite" : undefined}
+                className="eiga-annotation mt-1.5"
+              >
                 {readOnly && !sharedLibrary
                   ? "Shared maps are read only"
                   : sharedLibrary
                     ? `Shared ${shareStamp ? new Date(shareStamp).toLocaleDateString() : "publicly"} · reviews included`
                     : account.session.user
-                      ? "Your atlas saves to your account"
+                      ? account.saving === "working"
+                        ? "Saving atlas to your account…"
+                        : account.saving === "failed"
+                          ? "Save failed · retry in account"
+                          : account.saved && (ownsLocalTarget || accountLibrary)
+                            ? "Atlas saved to your account"
+                            : "Your atlas is local until it saves"
                       : "Your imported library stays in this browser"}
               </p>
               {/*
@@ -839,19 +824,26 @@ function LibraryChoiceDialog({
   readonly onLocal: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     if (!dialog.current?.open) dialog.current?.showModal();
   }, []);
   return (
-    <dialog ref={dialog} className="eiga-dialog text-paper backdrop:bg-void/75">
-      <div className="max-w-md p-6 sm:p-8">
+    <dialog
+      ref={dialog}
+      aria-labelledby={titleId}
+      className="eiga-dialog text-paper backdrop:bg-void/75"
+    >
+      <div className="eiga-dialog-content">
         <p className="eiga-mark text-signal text-xs">TWO ATLASES</p>
-        <h2 className="font-display mt-3 text-2xl">Choose which atlas to open</h2>
+        <h2 id={titleId} className="font-display mt-3 text-2xl">
+          Choose which atlas to open
+        </h2>
         <p className="text-paper-mid mt-4 text-sm leading-relaxed">
           You have a local import and an atlas saved to your account. Choose one to
           continue. Keeping the local import will replace the saved atlas after it saves.
         </p>
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="eiga-dialog-actions mt-6">
           <button type="button" className="eiga-button" onClick={onSaved}>
             Open saved atlas
           </button>

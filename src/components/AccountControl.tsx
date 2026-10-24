@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 export interface AccountUser {
   readonly id: string;
@@ -39,6 +39,7 @@ export function AccountControl({
   readonly notice?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const [view, setView] = useState<View>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,13 +80,16 @@ export function AccountControl({
       )}
       <dialog
         ref={dialog}
+        aria-labelledby={titleId}
         onClose={() => setView(null)}
         className="eiga-dialog text-paper backdrop:bg-void/75"
       >
         {user && view === "account" ? (
-          <div className="max-w-md p-6 sm:p-8">
+          <div className="eiga-dialog-content">
             <p className="eiga-mark text-signal text-xs">YOUR ACCOUNT</p>
-            <h2 className="font-display mt-3 text-2xl">{user.name}</h2>
+            <h2 id={titleId} className="font-display mt-3 text-2xl">
+              {user.name}
+            </h2>
             <p className="eiga-annotation mt-2">
               {saving === "working"
                 ? "Saving your atlas…"
@@ -106,14 +110,15 @@ export function AccountControl({
               </button>
             )}
             {sharedUrl ? (
-              <p className="mt-5 text-sm break-all">
+              <div className="mt-6">
+                <p className="eiga-annotation mb-2">Your public link</p>
                 <a
-                  className="decoration-signal underline underline-offset-4"
+                  className="eiga-share-link decoration-signal underline underline-offset-4"
                   href={sharedUrl}
                 >
                   {sharedUrl}
                 </a>
-              </p>
+              </div>
             ) : sharedActive ? (
               <p className="eiga-annotation mt-5">A public link is active.</p>
             ) : null}
@@ -122,7 +127,7 @@ export function AccountControl({
                 {message}
               </p>
             )}
-            <div className="mt-6 flex flex-wrap gap-2">
+            <div className="eiga-dialog-actions mt-6">
               {!sharedActive && (
                 <button
                   type="button"
@@ -167,11 +172,13 @@ export function AccountControl({
               >
                 Delete saved atlas
               </button>
-              {!hasSaved && (
-                <p className="eiga-annotation basis-full">
-                  Import a library and let it save before sharing.
-                </p>
-              )}
+            </div>
+            {!hasSaved && (
+              <p className="eiga-annotation mt-4">
+                Import a library and let it save before sharing.
+              </p>
+            )}
+            <div className="eiga-dialog-actions border-rule mt-6 border-t pt-6">
               <button
                 type="button"
                 className="eiga-button"
@@ -195,10 +202,12 @@ export function AccountControl({
           </div>
         ) : null}
         {user && view === "share" ? (
-          <div className="max-w-md p-6 sm:p-8">
+          <div className="eiga-dialog-content">
             <p className="eiga-mark text-signal text-xs">PUBLIC SHARE</p>
-            <h2 className="font-display mt-3 text-2xl">Share your saved atlas?</h2>
-            <p className="text-paper-mid mt-4 text-sm leading-relaxed">
+            <h2 id={titleId} className="font-display mt-3 text-2xl">
+              Share your saved atlas?
+            </h2>
+            <p className="text-paper-mid mt-4 text-sm leading-relaxed text-balance">
               Anyone with the link can view your saved films, watch dates, ratings, likes,
               and review text. Reviews can be personal. The link stays available until you
               revoke it or delete your saved atlas.
@@ -208,7 +217,7 @@ export function AccountControl({
                 {message}
               </p>
             )}
-            <div className="mt-6 flex flex-wrap gap-2">
+            <div className="eiga-dialog-actions mt-6">
               <button
                 type="button"
                 className="eiga-button"
@@ -233,10 +242,12 @@ export function AccountControl({
           </div>
         ) : null}
         {user && view === "delete" ? (
-          <div className="max-w-md p-6 sm:p-8">
+          <div className="eiga-dialog-content">
             <p className="eiga-mark text-signal text-xs">DELETE ATLAS</p>
-            <h2 className="font-display mt-3 text-2xl">Delete your saved atlas?</h2>
-            <p className="text-paper-mid mt-4 text-sm leading-relaxed">
+            <h2 id={titleId} className="font-display mt-3 text-2xl">
+              Delete your saved atlas?
+            </h2>
+            <p className="text-paper-mid mt-4 text-sm leading-relaxed text-balance">
               This permanently removes the atlas from your account and revokes its public
               link. Your current local view stays open.
             </p>
@@ -245,7 +256,7 @@ export function AccountControl({
                 {message}
               </p>
             )}
-            <div className="mt-6 flex flex-wrap gap-2">
+            <div className="eiga-dialog-actions mt-6">
               <button
                 type="button"
                 className="eiga-button"
