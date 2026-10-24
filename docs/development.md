@@ -80,7 +80,7 @@ explanation lives here rather than in the file.
 
 ### The one hand-set value
 
-`ORIGIN` in `src/app/layout.tsx` must match the origin Cloudflare actually
+`ORIGIN` in `src/app/site.ts` must match the production origin Cloudflare actually
 serves: `<project-name>.pages.dev`, or a custom domain once one is attached. The
 Pages project name _is_ the subdomain, so renaming the project in the dashboard
 changes the URL and this line has to follow.

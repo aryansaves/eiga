@@ -32,9 +32,16 @@ Reason: deterministic, free to operate, privacy-friendly, and unnecessary for th
 
 ## ADR-006 — No backend/database in V1
 
-Status: accepted
+Status: superseded for optional signed-in persistence; anonymous use remains local
 
 Reason: prove the visualization before adding operational complexity.
+
+The authentication experiment keeps raw parsing and graph generation in the
+browser. A separate eiga-persistent repository provides same-origin Pages APIs
+for Google sign-in, normalized-library storage, and revocable links to the latest
+saved map including reviews. One D1 database uses fixed staging/production tables
+and independent migration ledgers. CI assembles the two repos and tests staging
+before the backend release manifest can enable production.
 
 ## ADR-007 — Cinematic observatory visual language
 

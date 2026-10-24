@@ -329,7 +329,9 @@ be extended rather than worked around.
 ## Deliberately absent
 
 No state manager, no data-fetching library, no test framework, no component library, no ZIP
-library, no icon set, no animation library, no persistence layer, no server.
+library, no icon set, no animation library. Optional account persistence lives in
+`src/persistence`; the separate eiga-persistent repository owns the server,
+Google OAuth, D1 migrations, and combined Pages deployment.
 
 Each of those has been considered and rejected on the same grounds: the concrete problem it
 solves is not one this project has. Before adding a dependency or an architectural layer,
