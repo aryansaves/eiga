@@ -2,8 +2,8 @@ import {
   libraryFromSnapshot,
   snapshotFromLibrary,
   type Snapshot,
-} from "@/domain/snapshot.ts";
-import type { Library } from "@/domain/types.ts";
+} from "../domain/snapshot.ts";
+import type { Library } from "../domain/types.ts";
 
 export interface Session {
   readonly user: { readonly id: string; readonly name: string } | null;
@@ -74,55 +74,24 @@ export async function getSharedMap(token: string) {
 }
 
 export function loginWithGoogle(
-  onResult?: (ok: boolean) => void,
+  onFailure: () => void,
   pendingLibrary?: Library | null,
 ): void {
-  const popup = window.open(
-    "/api/auth/google?popup=1",
-    "eiga-google-login",
-    "popup,width=520,height=680",
-  );
-  if (popup) {
-    const origin = window.location.origin;
-    const listener = (event: MessageEvent) => {
-      if (
-        event.origin !== origin ||
-        event.source !== popup ||
-        event.data?.type !== "eiga-auth"
-      )
-        return;
-      cleanup();
-      popup.close();
-      onResult?.(Boolean(event.data.ok));
-    };
-    const poll = window.setInterval(() => {
-      if (popup.closed) {
-        cleanup();
-        onResult?.(false);
-      }
-    }, 400);
-    const cleanup = () => {
-      window.removeEventListener("message", listener);
-      window.clearInterval(poll);
-    };
-    window.addEventListener("message", listener);
-    return;
-  }
+  clearPendingLogin();
   try {
     if (pendingLibrary)
       sessionStorage.setItem(
         "eiga-pending-library",
         JSON.stringify(snapshotFromLibrary(pendingLibrary)),
       );
-    sessionStorage.setItem("eiga-pending-login", "1");
   } catch {
     if (pendingLibrary) {
       clearPendingLogin();
-      onResult?.(false);
+      onFailure();
       return;
     }
   }
-  // OAuth must begin as a full-page navigation when the popup is blocked.
+  // Keep a single redirect flow; tab storage preserves the current import.
   // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   window.location.assign("/api/auth/google");
 }

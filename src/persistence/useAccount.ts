@@ -130,15 +130,14 @@ export function useAccount(
   useEffect(() => {
     mounted.current = true;
     const returned = consumeLoginReturn();
-    if (returned) {
-      const pending = takePendingLibrary();
-      if (pending) onRestorePending?.(pending);
-      clearPendingLogin();
-      if (returned === "failed")
-        queueMicrotask(() =>
-          setNotice("Sign in did not complete. Your local import is still here."),
-        );
-    }
+    // Restore even after navigating back from Google without a callback.
+    const pending = takePendingLibrary();
+    if (pending) onRestorePending?.(pending);
+    clearPendingLogin();
+    if (returned === "failed")
+      queueMicrotask(() =>
+        setNotice("Sign in did not complete. Your local import is still here."),
+      );
     queueMicrotask(() => void refresh());
     return () => {
       mounted.current = false;
@@ -148,14 +147,12 @@ export function useAccount(
 
   const login = useCallback(
     (pendingLibrary?: Library | null) =>
-      loginWithGoogle((ok) => {
-        if (!ok) {
-          setNotice("Sign in did not complete. Your local import is still here.");
-          return;
-        }
-        void refresh();
+      loginWithGoogle(() => {
+        setNotice(
+          "This browser could not preserve your import for sign-in. Your local atlas is still here.",
+        );
       }, pendingLibrary),
-    [refresh],
+    [],
   );
 
   const resolveSaveConflict = useCallback(

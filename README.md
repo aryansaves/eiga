@@ -190,7 +190,7 @@ These are enforced, not aspirational:
 - Raw exports are parsed in the browser and never uploaded. Signed-in users save
   their normalized films, viewing dates, ratings, likes, and reviews to EIGA's D1 storage.
 - Anonymous imports remain in memory. `localStorage` holds only `eiga-theme`.
-  If a blocked login popup requires a redirect, the pending normalized import is
+  During the Google sign-in redirect, the pending normalized import is
   temporarily preserved in this tab's `sessionStorage` and cleared on return.
 - Sharing publishes the latest saved library, including review text, to anyone
   holding the link. Revoking the link or deleting the saved map removes public access.
