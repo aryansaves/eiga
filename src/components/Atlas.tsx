@@ -87,6 +87,7 @@ export function Atlas() {
   const lastSaved = account.lastSaved;
   const setSaveTarget = account.setSaveTarget;
   const signOutAccount = account.signOut;
+  const clearAccountNotice = account.clearNotice;
   useEffect(() => {
     // A pending import must not replace a different account's saved atlas.
     ++importGeneration.current;
@@ -308,6 +309,7 @@ export function Atlas() {
       if (generation !== importGeneration.current) return;
       setImported(result);
       setFocusedId(null);
+      setAccountMessage("");
       // An explicit upload replaces this account's atlas; restored drafts still
       // require a choice, and revision conflicts remain protected by the server.
       setLocalOverride(Boolean(accountUser && accountReady));
@@ -322,6 +324,8 @@ export function Atlas() {
     the demo with no way back to the door they came in through.
   */
   const reset = useCallback(() => {
+    ++importGeneration.current;
+    setAccountMessage("");
     setImported(null);
     setDemoAsked(false);
     setFocusedId(null);
@@ -330,10 +334,12 @@ export function Atlas() {
 
   const useSaved = useCallback(() => {
     if (!savedMap) return;
+    ++importGeneration.current;
     setImported(null);
     setLocalOverride(false);
+    clearAccountNotice();
     setAccountMessage("Showing your saved atlas.");
-  }, [savedMap]);
+  }, [savedMap, clearAccountNotice]);
   const keepLocal = useCallback(() => {
     setLocalOverride(true);
     setAccountMessage("Your local import will replace your saved atlas after it saves.");
@@ -457,28 +463,8 @@ export function Atlas() {
 
   return (
     <main
-      /*
-        Two compositions of one tree.
-
-        Above `sm` the map is the page and the chrome is a caption over it: the
-        surface is `absolute inset-0`, the two bands float on top of it and fade
-        into it, and nothing has an edge. That is the composition the brief asks
-        for, and it needs room in order to be true — a caption over a map has to
-        leave the map visible underneath.
-
-        On a phone there is no such room, and pretending otherwise did not degrade
-        gracefully, it just lied. Measured at 375×812: the top band stood 475px
-        tall and the bottom 330px, which left eight pixels of map between them and
-        put the save control directly on top of the timeline. Both bands also
-        carry 80px of padding whose only job is to give the gradient somewhere to
-        fade, which on a phone is a tenth of the screen spent on a fade.
-
-        So below `sm` the same three children stop overlapping and become a flow
-        column — header, map, footer — the fade padding collapses to real
-        spacing, and the bands take a hairline edge because a band in flow has one
-        whether it is drawn or not. The map gets what is left, which is a little
-        under half the screen. Nothing overlaps because nothing is positioned.
-      */
+      /* Desktop bands overlay the map. Mobile bands stay in flow so controls
+         cannot cover the graph; compact CSS reserves most height for the map. */
       className="relative flex flex-1 flex-col overflow-hidden sm:block"
       onDragOver={(event) => {
         event.preventDefault();
@@ -526,6 +512,11 @@ export function Atlas() {
                 <span className="eiga-annotation">Opening…</span>
               )}
             </div>
+            {account.session.user && account.saved && (
+              <button type="button" className="eiga-button" onClick={useSaved}>
+                Open saved atlas
+              </button>
+            )}
           </div>
           <Landing
             onFiles={load}
@@ -542,25 +533,7 @@ export function Atlas() {
         </>
       ) : (
         <>
-          {/*
-            The instruments.
-
-            A two-column grid at both widths, which is the one arrangement that
-            reads correctly at each without moving anything in the DOM: the free
-            column takes the identity and the controls, the hugging column takes
-            the acts. Above `sm` the acts span both rows and sit in the top-right
-            corner, exactly as they did when this was a `justify-between` flex row.
-            Below `sm` they sit beside the wordmark on the first line and the
-            controls span the full width underneath.
-
-            That last part is the whole reason for the grid. As a wrapping flex row
-            the right-hand column dropped *below* the left one on a narrow screen,
-            which is what turned 200px of chrome into 475px and pushed the save
-            control onto the map.
-
-            Mobile spacing is scoped to the atlas bands in CSS; desktop
-            keeps the more open caption layout.
-          */}
+          {/* Identity and actions share the first row; filters sit below them. */}
           <div className="eiga-atlas-header from-void via-void/85 border-rule pointer-events-none relative z-10 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-b px-7 pt-7 pb-5 sm:absolute sm:inset-x-0 sm:top-0 sm:gap-x-8 sm:border-0 sm:bg-linear-to-b sm:to-transparent sm:px-12 sm:pb-20">
             <div className="col-start-1 row-start-1">
               {/*

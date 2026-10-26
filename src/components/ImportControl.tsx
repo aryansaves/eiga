@@ -93,7 +93,9 @@ export function ImportReport({
     `${result.accepted.length} read`,
     result.skipped.length > 0 ? `${result.skipped.length} skipped` : null,
     // "1 problems" is the sort of thing that makes a careful tool look careless.
-    errors.length > 0 ? `${errors.length} problem${errors.length === 1 ? "" : "s"}` : null,
+    errors.length > 0
+      ? `${errors.length} problem${errors.length === 1 ? "" : "s"}`
+      : null,
   ]
     .filter((part): part is string => part !== null)
     .join(" · ");
@@ -113,9 +115,7 @@ export function ImportReport({
                 className="text-xs leading-relaxed"
               >
                 <span
-                  className={
-                    note.severity === "error" ? "text-signal" : "text-paper-dim"
-                  }
+                  className={note.severity === "error" ? "text-signal" : "text-paper-dim"}
                 >
                   {note.file || "selection"}
                   {note.row !== null && ` · row ${note.row}`}

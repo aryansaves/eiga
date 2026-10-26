@@ -47,9 +47,9 @@ export function useAccount(
   const [ready, setReady] = useState(false);
   const [saved, setSaved] = useState<SavedMap | null>(null);
   const [lastSaved, setLastSaved] = useState<SuccessfulTarget | null>(null);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState<"idle" | "working" | "failed">("idle");
   const [notice, setNotice] = useState("");
+  const clearNotice = useCallback(() => setNotice(""), []);
   const sessionRef = useRef(session);
   const readyRef = useRef(false);
   const mounted = useRef(false);
@@ -101,7 +101,6 @@ export function useAccount(
         commitSession(nextSession);
         setNotice("");
         setSaved(result);
-        setShareUrl(result?.shareUrl ?? null);
         revisions.current.reset(
           { epoch: currentEpoch, userId: nextSession.user.id },
           result?.revision ?? 0,
@@ -109,13 +108,11 @@ export function useAccount(
       } else {
         commitSession(nextSession);
         setSaved(null);
-        setShareUrl(null);
       }
     } catch {
       if (mounted.current && currentEpoch === epoch.current) {
         commitSession({ user: null, csrfToken: null });
         setSaved(null);
-        setShareUrl(null);
         revisions.current.clear();
         setNotice("Account services are unavailable. Your local atlas still works.");
       }
@@ -156,15 +153,19 @@ export function useAccount(
   );
 
   const resolveSaveConflict = useCallback(
-    async (owner: RevisionOwner, requestEpoch: number) => {
+    async (owner: RevisionOwner, requestEpoch: number, requestGeneration: number) => {
       const latest = await getSavedMap();
       if (!mounted.current || epoch.current !== requestEpoch) return;
       setSaved(latest);
-      setShareUrl(latest?.shareUrl ?? null);
       setLastSaved(null);
+      lastSavedRef.current = null;
       revisions.current.reset(owner, latest?.revision ?? 0);
       const activeTarget = target.current;
-      if (activeTarget?.userId === owner.userId && activeTarget.allowed) {
+      if (
+        requestGeneration === generation.current &&
+        activeTarget?.userId === owner.userId &&
+        activeTarget.allowed
+      ) {
         onSaveConflict?.();
         setNotice(
           "Your saved atlas changed in another session. Choose which atlas to keep.",
@@ -207,7 +208,6 @@ export function useAccount(
             shared: result.shared,
             shareUrl: result.shareUrl,
           });
-          setShareUrl(result.shareUrl);
           setLastSaved({ userId: saveTarget.userId, library: saveTarget.library });
           lastSavedRef.current = {
             userId: saveTarget.userId,
@@ -219,7 +219,7 @@ export function useAccount(
           if (!mounted.current || requestEpoch !== epoch.current) return;
           if (error instanceof Error && error.message.startsWith("This map changed")) {
             try {
-              await resolveSaveConflict(owner, requestEpoch);
+              await resolveSaveConflict(owner, requestEpoch, requestGeneration);
             } catch {
               /* The retry action can fetch the current revision later. */
             }
@@ -310,7 +310,6 @@ export function useAccount(
       return createShare();
     });
     if (requestEpoch === epoch.current && sessionRef.current.user?.id === userId) {
-      setShareUrl(result.url);
       setSaved((current) =>
         current ? { ...current, shared: true, shareUrl: result.url } : current,
       );
@@ -334,7 +333,6 @@ export function useAccount(
       }
       await revokeShare();
       if (requestEpoch === epoch.current && sessionRef.current.user?.id === userId) {
-        setShareUrl(null);
         setSaved((current) =>
           current ? { ...current, shared: false, shareUrl: null } : current,
         );
@@ -363,7 +361,6 @@ export function useAccount(
           setSaved(null);
           setLastSaved(null);
           lastSavedRef.current = null;
-          setShareUrl(null);
           revisions.current.reset({ epoch: requestEpoch, userId }, 0);
         });
       } catch (error) {
@@ -407,7 +404,6 @@ export function useAccount(
     setSaved(null);
     setLastSaved(null);
     lastSavedRef.current = null;
-    setShareUrl(null);
     setSaving("idle");
     setReady(true);
     readyRef.current = true;
@@ -419,8 +415,9 @@ export function useAccount(
     saved,
     lastSaved,
     saving,
-    shareUrl,
+    shareUrl: saved?.shareUrl ?? null,
     notice,
+    clearNotice,
     login,
     refresh,
     setSaveTarget,

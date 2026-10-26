@@ -19,7 +19,12 @@
  * — better than a dead control that technically works.
  */
 
-import { watchYearOf, type AxisId, type HubAxisId, type Library } from "../domain/types.ts";
+import {
+  watchYearOf,
+  type AxisId,
+  type HubAxisId,
+  type Library,
+} from "../domain/types.ts";
 import {
   byDecade,
   byDirector,

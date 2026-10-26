@@ -83,7 +83,9 @@ test("a like or a rewatch naming no known film counts for nothing", () => {
   });
 
   const found = filtersFor(ghosts);
-  assert.deepEqual(ids(found.find((option) => option.id === "liked")?.films ?? null), ["a"]);
+  assert.deepEqual(ids(found.find((option) => option.id === "liked")?.films ?? null), [
+    "a",
+  ]);
   // The only rewatch names a film the library does not hold, so the chip is withheld.
   assert.equal(
     found.some((option) => option.id === "rewatched"),
@@ -162,8 +164,12 @@ test("what narrow returns is what a film node carries", () => {
   const lit = narrow(source, ["rewatched"], "");
   assert.ok(lit);
 
-  const named = [...new Set(graph.nodes
-    .filter((node) => node.filmId !== null && lit.has(node.filmId))
-    .map((node) => node.label))];
+  const named = [
+    ...new Set(
+      graph.nodes
+        .filter((node) => node.filmId !== null && lit.has(node.filmId))
+        .map((node) => node.label),
+    ),
+  ];
   assert.deepEqual(named, ["Solaris"]);
 });

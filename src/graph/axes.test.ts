@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { demoLibrary } from "../domain/demo.ts";
-import { emptyLibrary, type Film, type Library, type WatchEvent } from "../domain/types.ts";
+import {
+  emptyLibrary,
+  type Film,
+  type Library,
+  type WatchEvent,
+} from "../domain/types.ts";
 import { AXES, axesFor, resolveAxis } from "./axes.ts";
 
 function library(films: readonly Film[], watches: readonly WatchEvent[] = []): Library {
@@ -56,7 +61,11 @@ test("a view that can say nothing about a library is not offered at all", () => 
     axesFor(undated).map((axis) => axis.id),
     ["decade"],
   );
-  assert.equal(resolveAxis(undated, "diary").id, "decade", "an impossible choice resolves");
+  assert.equal(
+    resolveAxis(undated, "diary").id,
+    "decade",
+    "an impossible choice resolves",
+  );
 });
 
 test("one dated viewing is enough to offer the timeline", () => {

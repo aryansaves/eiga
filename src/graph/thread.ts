@@ -20,9 +20,11 @@ export function buildThread(library: Library): Graph {
       watchedOn: watch.watchedOn,
     });
   }
-  const watches = [...unique.values()].sort((a, b) =>
-    a.watchedOn.localeCompare(b.watchedOn) ||
-    a.filmId.localeCompare(b.filmId) || Number(a.rewatch) - Number(b.rewatch),
+  const watches = [...unique.values()].sort(
+    (a, b) =>
+      a.watchedOn.localeCompare(b.watchedOn) ||
+      a.filmId.localeCompare(b.filmId) ||
+      Number(a.rewatch) - Number(b.rewatch),
   );
   const seen = new Set<string>();
   const nodes: GraphNode[] = watches.map((watch, index) => {
@@ -31,16 +33,23 @@ export function buildThread(library: Library): Graph {
     seen.add(film.id);
     const previous = watches[index - 1];
     const gapDays = previous
-      ? Math.round((Date.parse(watch.watchedOn) - Date.parse(previous.watchedOn)) / 86400000)
+      ? Math.round(
+          (Date.parse(watch.watchedOn) - Date.parse(previous.watchedOn)) / 86400000,
+        )
       : 0;
     const year = watch.watchedOn.slice(0, 4);
-    const milestone = index === 0
-      ? `First logged · ${year}`
-      : index === watches.length - 1
-        ? `Latest logged · ${year}`
-        : previous.watchedOn.slice(0, 4) !== year ? year : undefined;
+    const milestone =
+      index === 0
+        ? `First logged · ${year}`
+        : index === watches.length - 1
+          ? `Latest logged · ${year}`
+          : previous.watchedOn.slice(0, 4) !== year
+            ? year
+            : undefined;
     return {
-      id: first ? `film:${film.id}` : `viewing:${film.id}:${watch.watchedOn}:${watch.rewatch}`,
+      id: first
+        ? `film:${film.id}`
+        : `viewing:${film.id}:${watch.watchedOn}:${watch.rewatch}`,
       kind: "film",
       label: film.title,
       filmId: film.id,
@@ -101,8 +110,8 @@ export function journeyObservation(graph: Graph): string | null {
     const previous = visits.get(stop.filmId);
     visits.set(stop.filmId, { title: stop.label, count: (previous?.count ?? 0) + 1 });
   }
-  const mostVisited = [...visits.values()].sort((a, b) =>
-    b.count - a.count || a.title.localeCompare(b.title),
+  const mostVisited = [...visits.values()].sort(
+    (a, b) => b.count - a.count || a.title.localeCompare(b.title),
   )[0];
   if (mostVisited && mostVisited.count > 1) {
     return `${mostVisited.title}, again — ${mostVisited.count} viewings along your journey.`;

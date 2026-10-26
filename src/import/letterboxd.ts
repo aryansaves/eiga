@@ -109,10 +109,7 @@ const WATCH_HISTORY: ReadonlySet<LetterboxdFileKind> = new Set([
  * export establishes. `watchlist` and `profile` are absent deliberately — the
  * first is films never seen, the second is account identity.
  */
-const READABLE: ReadonlySet<LetterboxdFileKind> = new Set([
-  ...WATCH_HISTORY,
-  "likes",
-]);
+const READABLE: ReadonlySet<LetterboxdFileKind> = new Set([...WATCH_HISTORY, "likes"]);
 
 /**
  * Files whose `Letterboxd URI` column addresses a film.
@@ -270,8 +267,7 @@ function mergeFilm(into: Accumulator, film: Film): void {
     title: existing.title || film.title,
     year: existing.year ?? film.year,
     uri: existing.uri ?? film.uri,
-    directors:
-      existing.directors.length > 0 ? existing.directors : film.directors,
+    directors: existing.directors.length > 0 ? existing.directors : film.directors,
   });
 }
 
@@ -362,9 +358,7 @@ export function ingestCsv(
       that as the film's link would poison the field for later enrichment —
       files are merged in name order, so `diary` would otherwise win it.
     */
-    const uri = FILM_URI_FILES.has(kind)
-      ? row["Letterboxd URI"]?.trim() || null
-      : null;
+    const uri = FILM_URI_FILES.has(kind) ? row["Letterboxd URI"]?.trim() || null : null;
 
     mergeFilm(into, { id, title, year, uri, directors: [] });
 
@@ -532,10 +526,7 @@ async function looksLikeArchive(file: Blob): Promise<boolean> {
   if (file.size < 4) return false;
   const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
   if (head[0] !== 0x50 || head[1] !== 0x4b) return false;
-  return (
-    (head[2] === 0x03 && head[3] === 0x04) ||
-    (head[2] === 0x05 && head[3] === 0x06)
-  );
+  return (head[2] === 0x03 && head[3] === 0x04) || (head[2] === 0x05 && head[3] === 0x06);
 }
 
 /**
@@ -606,9 +597,7 @@ export async function importLetterboxdFiles(
         field: null,
         severity: "error",
         message:
-          error instanceof Error
-            ? error.message
-            : "this archive could not be read",
+          error instanceof Error ? error.message : "this archive could not be read",
       });
     }
   }

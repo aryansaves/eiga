@@ -55,8 +55,7 @@ async function buildZip(entries: readonly Entry[]): Promise<Blob> {
 
   for (const entry of entries) {
     const name = encoder.encode(entry.path);
-    const raw =
-      typeof entry.body === "string" ? encoder.encode(entry.body) : entry.body;
+    const raw = typeof entry.body === "string" ? encoder.encode(entry.body) : entry.body;
     const data = entry.deflate ? await deflateRaw(raw) : raw;
     const method = entry.method ?? (entry.deflate ? 8 : 0);
     const flags = (entry.streamed ? 0x0008 : 0) | (entry.flags ?? 0);
@@ -125,8 +124,18 @@ test("reads entries whose local headers declare no sizes", async () => {
     empty strings and a silently empty library.
   */
   const zip = await buildZip([
-    { path: "diary.csv", body: "Name,Year\nStalker,1979\n", deflate: true, streamed: true },
-    { path: "watched.csv", body: "Name,Year\nSolaris,1972\n", deflate: true, streamed: true },
+    {
+      path: "diary.csv",
+      body: "Name,Year\nStalker,1979\n",
+      deflate: true,
+      streamed: true,
+    },
+    {
+      path: "watched.csv",
+      body: "Name,Year\nSolaris,1972\n",
+      deflate: true,
+      streamed: true,
+    },
   ]);
 
   const read = await readZip(zip, everything);
@@ -186,10 +195,10 @@ test("nested paths reach the caller intact", async () => {
   ]);
 
   const read = await readZip(zip, everything);
-  assert.deepEqual(
-    read.entries.map((entry) => entry.path).sort(),
-    ["deleted/diary.csv", "likes/films.csv"],
-  );
+  assert.deepEqual(read.entries.map((entry) => entry.path).sort(), [
+    "deleted/diary.csv",
+    "likes/films.csv",
+  ]);
 });
 
 test("directory markers are counted, not read", async () => {
@@ -222,10 +231,7 @@ test("zip64 archives are refused rather than misread", async () => {
   const eocd = bytes.byteLength - 22;
   new DataView(bytes.buffer).setUint32(eocd + 16, 0xffffffff, true);
 
-  await assert.rejects(
-    () => readZip(new Blob([bytes]), everything),
-    /zip64/,
-  );
+  await assert.rejects(() => readZip(new Blob([bytes]), everything), /zip64/);
 });
 
 test("unsupported compression methods and encryption are refused when read", async () => {

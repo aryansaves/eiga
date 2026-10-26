@@ -80,7 +80,14 @@ const CATALOGUE: readonly Entry[] = [
   { title: "The Sacrifice", year: 1986, by: TARKOVSKY, rating: 3.5, seen: "2024-03-16" },
 
   { title: "Rashomon", year: 1950, by: KUROSAWA, rating: 4.5, seen: "2024-09-21" },
-  { title: "Ikiru", year: 1952, by: KUROSAWA, rating: 4.5, seen: "2024-09-21", liked: true },
+  {
+    title: "Ikiru",
+    year: 1952,
+    by: KUROSAWA,
+    rating: 4.5,
+    seen: "2024-09-21",
+    liked: true,
+  },
   {
     title: "Seven Samurai",
     year: 1954,

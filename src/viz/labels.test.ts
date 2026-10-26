@@ -13,7 +13,13 @@ import {
 import { buildGraph, byDecade } from "../graph/build.ts";
 import { buildThread } from "../graph/thread.ts";
 import { createLayout, settle } from "./layout.ts";
-import { labelBox, yearLabelBox, visibleLabels, LABEL_FLOOR, type Box } from "./labels.ts";
+import {
+  labelBox,
+  yearLabelBox,
+  visibleLabels,
+  LABEL_FLOOR,
+  type Box,
+} from "./labels.ts";
 
 /*
   The label choice is pure, so it is measured here rather than in a browser — and
@@ -104,7 +110,12 @@ test("a hub's name is never printed over", () => {
     settle(layout.simulation);
 
     const scale = 1.6;
-    const named = visibleLabels({ nodes: layout.nodes, rows: layout.rows, lit: null, scale });
+    const named = visibleLabels({
+      nodes: layout.nodes,
+      rows: layout.rows,
+      lit: null,
+      scale,
+    });
     const structure = layout.nodes
       .filter((node) => node.kind === "hub")
       .map((node) => ({ what: "a hub label", box: labelBox(node, scale) }));

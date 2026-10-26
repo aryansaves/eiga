@@ -323,8 +323,7 @@ export async function readZip(
     }
 
     const raw = bytes.subarray(from, to);
-    const expanded =
-      entry.method === METHOD_STORED ? raw : await inflate(raw, budget);
+    const expanded = entry.method === METHOD_STORED ? raw : await inflate(raw, budget);
 
     budget -= expanded.byteLength;
     if (budget < 0) {

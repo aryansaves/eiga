@@ -127,21 +127,13 @@ test("a rewatch becomes a distinct stop while retaining the film identity", () =
   const graph = buildThread(
     library(
       [film("a"), film("b")],
-      [
-        seen("a", "2024-06-01", true),
-        seen("a", "2022-01-01"),
-        seen("b", "2023-01-01"),
-      ],
+      [seen("a", "2024-06-01", true), seen("a", "2022-01-01"), seen("b", "2023-01-01")],
     ),
   );
 
   const appearances = graph.nodes.filter((node) => node.filmId === "a");
   assert.equal(appearances.length, 2);
-  assert.deepEqual(walk(graph), [
-    "film:a",
-    "film:b",
-    "viewing:a:2024-06-01:true",
-  ]);
+  assert.deepEqual(walk(graph), ["film:a", "film:b", "viewing:a:2024-06-01:true"]);
   assert.equal(graph.nodes.find((node) => node.id === "film:a")?.order, 0);
   assert.equal(appearances[1].rewatch, true);
 });
@@ -182,7 +174,10 @@ test("a film with no watch record at all is treated the same way", () => {
 
   assert.equal(graph.nodes.find((node) => node.id === "film:never")?.order, null);
   assert.equal(graph.edges.length, 0);
-  assert.deepEqual(unthreaded(graph).map((node) => node.id), ["film:never"]);
+  assert.deepEqual(
+    unthreaded(graph).map((node) => node.id),
+    ["film:never"],
+  );
 });
 
 test("a viewing of a film the library does not hold places no step", () => {
@@ -239,7 +234,12 @@ test("a real library's shape: one stop per dated viewing and n-1 edges", () => {
   for (let i = 0; i < 114; i += 1) {
     // Every eighth film shares the previous film's day, giving repeated knots.
     if (i > 0 && i % 8 !== 0) day += 1;
-    watches.push(seen(`f${i}`, `2024-${String(1 + Math.floor(day / 28)).padStart(2, "0")}-${String(1 + (day % 28)).padStart(2, "0")}`));
+    watches.push(
+      seen(
+        `f${i}`,
+        `2024-${String(1 + Math.floor(day / 28)).padStart(2, "0")}-${String(1 + (day % 28)).padStart(2, "0")}`,
+      ),
+    );
   }
 
   const graph = buildThread(library(films, watches));
@@ -331,10 +331,7 @@ test("a year boundary stays part of the same continuous journey", () => {
 
 test("the journey records only years containing viewings", () => {
   const graph = buildThread(
-    library(
-      [film("a"), film("b")],
-      [seen("a", "2020-03-01"), seen("b", "2023-03-01")],
-    ),
+    library([film("a"), film("b")], [seen("a", "2020-03-01"), seen("b", "2023-03-01")]),
   );
 
   assert.deepEqual(graph.years, [2020, 2023]);
@@ -351,10 +348,7 @@ test("long dormant stretches do not synthesize empty calendar rows", () => {
   assert.deepEqual(graph.years, [1994, 2024]);
 
   const filled = buildThread(
-    library(
-      [film("a"), film("b")],
-      [seen("a", "2020-03-01"), seen("b", "2024-03-01")],
-    ),
+    library([film("a"), film("b")], [seen("a", "2020-03-01"), seen("b", "2024-03-01")]),
   );
   assert.deepEqual(filled.years, [2020, 2024]);
 });

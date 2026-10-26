@@ -167,8 +167,12 @@ function milestoneBox(node: LayoutNode, scale: number): Box | null {
   if (!node.milestone) return null;
   const captionSize = 9 / scale;
   const captionHalf = extent(node.milestone, captionSize, 0.08) / 2;
-  return around(node.x - captionHalf, node.x + captionHalf,
-    node.y - node.radius - 1.1 * captionSize, captionSize);
+  return around(
+    node.x - captionHalf,
+    node.x + captionHalf,
+    node.y - node.radius - 1.1 * captionSize,
+    captionSize,
+  );
 }
 
 /**
@@ -241,8 +245,9 @@ export function visibleLabels(plan: LabelPlan): ReadonlySet<string> {
   });
 
   for (const film of films) {
-    const boxes = [labelBox(film, plan.scale), milestoneBox(film, plan.scale)]
-      .filter((box): box is Box => box !== null);
+    const boxes = [labelBox(film, plan.scale), milestoneBox(film, plan.scale)].filter(
+      (box): box is Box => box !== null,
+    );
     if (boxes.some((box) => taken.some((other) => overlaps(other, box)))) continue;
     taken.push(...boxes);
     named.add(film.id);

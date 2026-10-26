@@ -57,21 +57,21 @@ follow "Or see a demo library" for an authored 37-film library that exercises ev
 
 ## Scripts
 
-| script                 | runs                             | notes                                                          |
-| ---------------------- | -------------------------------- | -------------------------------------------------------------- |
-| `npm run dev`          | `next dev`                       | Turbopack dev server with HMR                                  |
-| `npm run build`        | `next build`                     | static export into `out/`; also type-checks                    |
-| `npm run lint`         | `eslint`                         | flat config — **not** `next lint`, which does not exist here   |
-| `npm run typecheck`    | `tsc --noEmit`                   | `strict` is on                                                 |
-| `npm test`             | `node --test 'src/**/*.test.ts'` | 136 tests, no test framework                                   |
-| `npm run format`       | `prettier --write .`             | see [the Prettier caveat](#the-prettier-caveat) before running |
-| `npm run format:check` | `prettier --check .`             | currently fails; see below                                     |
+| script                 | runs                             | notes                                                        |
+| ---------------------- | -------------------------------- | ------------------------------------------------------------ |
+| `npm run dev`          | `next dev`                       | Turbopack dev server with HMR                                |
+| `npm run build`        | `next build`                     | static export into `out/`; also type-checks                  |
+| `npm run lint`         | `eslint`                         | flat config — **not** `next lint`, which does not exist here |
+| `npm run typecheck`    | `tsc --noEmit`                   | `strict` is on                                               |
+| `npm test`             | `node --test 'src/**/*.test.ts'` | native Node tests, no test framework                         |
+| `npm run format`       | `prettier --write .`             | application sources and release configuration                |
+| `npm run format:check` | `prettier --check .`             | checked in CI                                                |
 
-`npm start` (`next start`) is inherited from the Next.js template and does **not** work:
-`output: "export"` produces static files, so there is no server to start. Serve `out/`
-with any static file server instead.
+The frontend exports static files to `out/`; serve that directory with a static file server.
+The complete app, including authentication, is assembled with Pages Functions from
+`eiga-persistent` by CI.
 
-The four gates that matter before a commit are `typecheck`, `lint`, `test`, and `build`.
+The release gates are `format:check`, `typecheck`, `lint`, `test`, and `build`.
 
 ## Toolchain
 
@@ -79,7 +79,7 @@ The four gates that matter before a commit are `typecheck`, `lint`, `test`, and 
 
 | package                        | why it is here                                                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `next` `16.3.1`                | App Router and the static exporter. No server features are used — see [Deployment](#deployment).       |
+| `next` `16.4.3`                | App Router and the static exporter. No server features are used — see [Deployment](#deployment).       |
 | `react` / `react-dom` `19.2.8` | UI. Every component is `"use client"`; React owns selection and filter state, never graph coordinates. |
 | `d3` `^7.9.0`                  | force simulation, zoom/pan, and selection. See the [d3 caveat](#the-d3-caveat).                        |
 | `papaparse` `^5.6.0`           | CSV parsing. Handles quoted fields, embedded newlines and the BOM that Letterboxd exports carry.       |
@@ -97,10 +97,10 @@ because the export uses stored/deflated entries that `DecompressionStream` alrea
 | `@types/d3`                            | d3 ships no types of its own. Without this, every d3 import is `any` and `avoid any` becomes unenforceable.                                            |
 | `@types/papaparse`                     | Same reason for Papa Parse.                                                                                                                            |
 | `eslint` `^9`                          | Flat config in `eslint.config.mjs`. Invoked as bare `eslint` — the `next lint` wrapper is gone in Next 16.                                             |
-| `eslint-config-next` `16.3.1`          | React-hooks and Next-specific rules. Pinned to the exact Next version on purpose; they move together.                                                  |
+| `eslint-config-next` `16.4.3`          | React-hooks and Next-specific rules. Pinned to the exact Next version on purpose; they move together.                                                  |
 | `tailwindcss` `^4`                     | Tailwind v4 is **CSS-first**: there is no `tailwind.config.js`. Design tokens live in an `@theme` block in `src/app/globals.css`.                      |
 | `@tailwindcss/postcss`                 | The PostCSS plugin that compiles those directives, wired up in `postcss.config.mjs`. Tailwind v4 no longer works through the old `tailwindcss` plugin. |
-| `prettier` `^3.9.6`                    | Formatter. Not currently enforced — see below.                                                                                                         |
+| `prettier` `^3.9.6`                    | Formatter. Application formatting, enforced in CI.                                                                                                     |
 | `prettier-plugin-tailwindcss` `^0.8.1` | Sorts Tailwind class strings into canonical order. This is why `className` values read in a consistent sequence throughout.                            |
 
 Note what is **absent**: no Jest, Vitest, Mocha, ts-node, tsx, or Babel. Tests run on
@@ -120,39 +120,16 @@ work around:
    the `@/` alias does not exist there. `src/components` and `src/app` are only ever loaded
    by Next and use `@/` normally.
 
-### The Prettier caveat
+### Formatting
 
-`npm run format:check` **does not pass** — 41 files differ. The committed code is
-hand-formatted, and no Prettier configuration reproduces it exactly. `.prettierrc` has been
-corrected to describe the codebase's actual style (double quotes, 90 columns) rather than
-contradicting it, which brought the count down from 55 to 41, but the gate is still red.
+`npm run format` formats application sources, root configuration, README and workflows.
+`npm run format:check` checks the same files in CI. Design reference documents and
+agent configuration retain their own formatting.
 
-Do not run `npm run format` casually: it will reformat 41 files in one commit. Prettier does
-not reflow comment _prose_, so the long explanatory comments survive intact, but code
-wrapping and line breaks will move. Pick one deliberately:
+### Graph dependencies
 
-- run `npm run format` once as its own isolated commit, then enforce it from then on;
-- or drop Prettier and its plugin, and let ESLint and `.editorconfig` carry style.
-
-### The d3 caveat
-
-`package.json` declares the `d3` meta-package, but the code imports the submodules
-directly:
-
-```ts
-import { forceSimulation } from "d3-force";
-import { select } from "d3-selection";
-import { zoom } from "d3-zoom";
-```
-
-Those resolve today only because npm installs a flat `node_modules` and `d3` depends on
-them transitively. **Under pnpm, Yarn PnP, or a nested install strategy these imports
-fail** — which matters the moment someone else clones the repo. It also installs 30 `d3-*`
-packages to use about 10.
-
-The fix is to declare the three submodules directly and drop the `d3` meta-package. It is
-left undone here because changing dependencies is a decision to make deliberately, not a
-drive-by.
+The app declares `d3-force`, `d3-selection` and `d3-zoom` directly, with their matching
+TypeScript definitions. Imports do not depend on the umbrella D3 package or npm hoisting.
 
 ## Repo map
 
@@ -281,5 +258,5 @@ anchor at full `signal` with its edge lit in `signal-deep`.
 
 The import → normalize → graph → explore → inspect slice is extended with optional
 Google authentication, account persistence, and revocable links to the latest saved map.
-Production authentication remains disabled in the backend release manifest until
-the assembled frontend/backend version has been tested on staging and approved for release.
+Production releases are pinned in the backend release manifest, tested on staging,
+and deployed by merging the backend release to main after the frontend has merged.

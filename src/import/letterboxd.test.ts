@@ -92,10 +92,10 @@ test("deleted and orphaned diary entries contribute no viewings", () => {
 
   assert.ok(!result.library.films.some((film) => film.title === "Removed Film"));
   assert.equal(result.library.watches.length, 3);
-  assert.deepEqual(
-    [...result.skipped].sort(),
-    ["deleted/diary.csv", "orphaned/diary.csv"],
-  );
+  assert.deepEqual([...result.skipped].sort(), [
+    "deleted/diary.csv",
+    "orphaned/diary.csv",
+  ]);
 });
 
 test("a like annotates a film and never conjures one", () => {
@@ -220,7 +220,10 @@ test("a diary entry URI does not fork the film it records", () => {
   ]);
 
   // The film keeps the film link; the entry code is never mistaken for one.
-  assert.equal(result.library.films.find((f) => f.id === STALKER)?.uri, "https://boxd.it/2bTa");
+  assert.equal(
+    result.library.films.find((f) => f.id === STALKER)?.uri,
+    "https://boxd.it/2bTa",
+  );
   assert.ok(
     result.library.films.every((film) => !film.uri?.includes("eNtRy")),
     "an entry URI was stored as a film link",
@@ -253,10 +256,11 @@ test("only real Watched Date columns produce viewings", () => {
   assert.equal(loggedOnly.library.watches.length, 0);
 
   const diary = importNamedCsvs([{ name: "diary.csv", text: DIARY }]);
-  assert.deepEqual(
-    diary.library.watches.map((watch) => watch.watchedOn).sort(),
-    ["2024-01-03", "2024-02-10", "2024-02-10"],
-  );
+  assert.deepEqual(diary.library.watches.map((watch) => watch.watchedOn).sort(), [
+    "2024-01-03",
+    "2024-02-10",
+    "2024-02-10",
+  ]);
   assert.equal(diary.library.watches.filter((watch) => watch.rewatch).length, 1);
 });
 

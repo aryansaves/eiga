@@ -24,7 +24,10 @@ import type { Film, FilmId } from "./types.ts";
  * invent.
  */
 export function fold(value: string): string {
-  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 }
 
 /**

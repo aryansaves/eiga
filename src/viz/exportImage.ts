@@ -102,14 +102,17 @@ async function rasterise(
   background: string,
   captionColor: string,
 ): Promise<HTMLCanvasElement> {
-  const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
+  const url = URL.createObjectURL(
+    new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }),
+  );
   try {
     const image = new Image();
     image.width = width;
     image.height = height;
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
-      image.onerror = () => reject(new Error("the map could not be rendered to an image"));
+      image.onerror = () =>
+        reject(new Error("the map could not be rendered to an image"));
       image.src = url;
     });
 
@@ -172,7 +175,9 @@ export async function exportMapPng(
     token("--color-paper-dim") || "#6b6f73",
   );
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/png"),
+  );
   if (!blob) throw new Error("the image could not be encoded");
   return blob;
 }

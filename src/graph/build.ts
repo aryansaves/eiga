@@ -148,9 +148,7 @@ export const byDecade: HubStrategy = {
     return (film) => {
       const decade = decadeOf(film);
       if (decade === null) return [];
-      return [
-        { key: `decade:${decade}`, label: decadeLabel(decade), order: decade },
-      ];
+      return [{ key: `decade:${decade}`, label: decadeLabel(decade), order: decade }];
     };
   },
 };
@@ -183,9 +181,7 @@ export const byRating: HubStrategy = {
       const rating = library.ratings.get(film.id);
       if (rating === undefined) return [];
       const step = Math.round(rating * 10);
-      return [
-        { key: `rating:${step}`, label: ratingLabel(rating), order: step },
-      ];
+      return [{ key: `rating:${step}`, label: ratingLabel(rating), order: step }];
     };
   },
 };
@@ -244,8 +240,7 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
   const edges = new Map<string, GraphEdge>();
   const degree = new Map<string, number>();
 
-  const bump = (nodeId: string) =>
-    degree.set(nodeId, (degree.get(nodeId) ?? 0) + 1);
+  const bump = (nodeId: string) => degree.set(nodeId, (degree.get(nodeId) ?? 0) + 1);
 
   /**
    * `counts` is false for the spine. A hub's degree is how many films it holds
@@ -269,9 +264,7 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
       map should be able to show, not a gap that drifts off the edge of it.
     */
     const hubs: readonly Hub[] =
-      found.length > 0
-        ? found
-        : [{ key: UNPLACED_KEY, label: strategy.unplacedLabel }];
+      found.length > 0 ? found : [{ key: UNPLACED_KEY, label: strategy.unplacedLabel }];
 
     for (const hub of hubs) {
       // First label wins. Hub keys are normalised, so two spellings of one
@@ -319,9 +312,7 @@ export function buildGraph(library: Library, strategy: HubStrategy): Graph {
 
   const known = new Set(library.films.map((film) => film.id));
   for (const date of [...byDate.keys()].sort()) {
-    const sameDay = [...(byDate.get(date) ?? [])]
-      .filter((id) => known.has(id))
-      .sort();
+    const sameDay = [...(byDate.get(date) ?? [])].filter((id) => known.has(id)).sort();
     if (sameDay.length < 2 || sameDay.length > SESSION_MAX_FILMS) continue;
 
     for (let i = 0; i < sameDay.length; i += 1) {

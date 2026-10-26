@@ -14,7 +14,12 @@ import {
 
 import { journeyAnchors, type JourneyPoint } from "./journey.ts";
 import { RATING_MAX, RATING_MIN } from "../domain/types.ts";
-import { orderedHubs, type Graph, type GraphEdgeKind, type GraphNode } from "../graph/build.ts";
+import {
+  orderedHubs,
+  type Graph,
+  type GraphEdgeKind,
+  type GraphNode,
+} from "../graph/build.ts";
 
 export interface LayoutNode extends GraphNode, SimulationNodeDatum {
   x: number;
@@ -299,12 +304,14 @@ export function createLayout(
       radius: isHub ? hubRadius(node.degree) : filmRadius(node.rating),
       anchorX: anchor.x,
       anchorY: anchor.y,
-      ...(thread ? {
-        fx: anchor.x,
-        fy: anchor.y,
-        tangentX: (anchor as JourneyPoint).tangentX,
-        tangentY: (anchor as JourneyPoint).tangentY,
-      } : {}),
+      ...(thread
+        ? {
+            fx: anchor.x,
+            fy: anchor.y,
+            tangentX: (anchor as JourneyPoint).tangentX,
+            tangentY: (anchor as JourneyPoint).tangentY,
+          }
+        : {}),
       x: seed ? seed.x : anchor.x + spread * Math.cos(angle),
       y: seed ? seed.y : anchor.y + spread * Math.sin(angle),
     };
@@ -370,9 +377,7 @@ export function createLayout(
 }
 
 /** Captures where everything currently is, to seed the next layout from. */
-export function positionsOf(
-  nodes: readonly LayoutNode[],
-): ReadonlyMap<string, Position> {
+export function positionsOf(nodes: readonly LayoutNode[]): ReadonlyMap<string, Position> {
   const positions = new Map<string, Position>();
   for (const node of nodes) positions.set(node.id, { x: node.x, y: node.y });
   return positions;

@@ -45,9 +45,7 @@ interface Candidate {
 const AXIS_BONUS = 25;
 
 /** Counts values, returning entries sorted by count desc then key asc. */
-function tally<T extends string | number>(
-  values: readonly T[],
-): readonly [T, number][] {
+function tally<T extends string | number>(values: readonly T[]): readonly [T, number][] {
   const counts = new Map<T, number>();
   for (const value of values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -131,13 +129,15 @@ function rewatchHabit(library: Library): Candidate | null {
 
 function decadeRange(library: Library): Candidate | null {
   const decades = new Set(
-    library.films
-      .map(decadeOf)
-      .filter((decade): decade is number => decade !== null),
+    library.films.map(decadeOf).filter((decade): decade is number => decade !== null),
   );
   if (decades.size < 3) return null;
 
-  return { score: 10, text: `Your cinema spans ${decades.size} decades.`, axis: "decade" };
+  return {
+    score: 10,
+    text: `Your cinema spans ${decades.size} decades.`,
+    axis: "decade",
+  };
 }
 
 /**

@@ -15,11 +15,7 @@ import {
   type HubStrategy,
 } from "./build.ts";
 
-function film(
-  id: string,
-  year: number | null,
-  directors: readonly string[] = [],
-): Film {
+function film(id: string, year: number | null, directors: readonly string[] = []): Film {
   return { id, title: `Film ${id}`, year, uri: null, directors };
 }
 
@@ -134,10 +130,7 @@ test("edge count stays linear where a clique would explode", () => {
   // A shared-attribute clique would be 20 * 19 / 2 = 190 edges.
   assert.equal(graph.edges.length, 20);
   assert.equal(graph.nodes.length, 21);
-  assert.equal(
-    graph.nodes.find((node) => node.kind === "hub")?.degree,
-    20,
-  );
+  assert.equal(graph.nodes.find((node) => node.kind === "hub")?.degree, 20);
 });
 
 test("decades are floored and labelled", () => {
@@ -179,20 +172,17 @@ test("a film the axis cannot place joins a named bucket, not nothing", () => {
 test("each axis names its own unplaceable bucket", () => {
   const one = [film("a", null)];
   assert.equal(
-    buildGraph(library(one), byRating).nodes.find((n) => n.id === "hub:unplaced")
-      ?.label,
+    buildGraph(library(one), byRating).nodes.find((n) => n.id === "hub:unplaced")?.label,
     "Unrated",
   );
   assert.equal(
-    buildGraph(library(one), byWatchYear).nodes.find(
-      (n) => n.id === "hub:unplaced",
-    )?.label,
+    buildGraph(library(one), byWatchYear).nodes.find((n) => n.id === "hub:unplaced")
+      ?.label,
     "Never logged",
   );
   assert.equal(
-    buildGraph(library(one), byDirector).nodes.find(
-      (n) => n.id === "hub:unplaced",
-    )?.label,
+    buildGraph(library(one), byDirector).nodes.find((n) => n.id === "hub:unplaced")
+      ?.label,
     "Director unknown",
   );
 });
@@ -214,14 +204,8 @@ test("director hubs drop in without changing the topology", () => {
 
   assert.equal(graph.groupKind, "director");
   assert.equal(graph.edges.length, 4); // c belongs to two hubs
-  assert.equal(
-    graph.nodes.find((node) => node.id === "film:c")?.degree,
-    2,
-  );
-  assert.equal(
-    graph.nodes.find((node) => node.label === "Andrei Tarkovsky")?.degree,
-    2,
-  );
+  assert.equal(graph.nodes.find((node) => node.id === "film:c")?.degree, 2);
+  assert.equal(graph.nodes.find((node) => node.label === "Andrei Tarkovsky")?.degree, 2);
 });
 
 test("director hubs merge across capitalisation but keep a readable label", () => {
@@ -251,15 +235,16 @@ test("rating rides on the film node on every axis, and axes never mix", () => {
   assert.equal(graph.nodes.find((node) => node.id === "film:a")?.rating, 4.5);
   assert.equal(graph.nodes.find((node) => node.id === "film:b")?.rating, null);
   assert.ok(!graph.nodes.some((node) => node.id.startsWith("hub:rating")));
-  assert.ok(graph.nodes.filter((node) => node.kind === "hub").every((h) => h.rating === null));
+  assert.ok(
+    graph.nodes.filter((node) => node.kind === "hub").every((h) => h.rating === null),
+  );
 
   // The rating still travels for the renderer to encode, on the rating axis too.
   const byBand = buildGraph(lib, byRating);
   assert.equal(byBand.nodes.find((node) => node.id === "film:a")?.rating, 4.5);
   assert.equal(
-    byBand.edges.filter(
-      (edge) => edge.kind === "membership" && edge.source === "film:a",
-    ).length,
+    byBand.edges.filter((edge) => edge.kind === "membership" && edge.source === "film:a")
+      .length,
     1,
   );
 });
@@ -274,11 +259,10 @@ test("films seen on the same day gain session edges", () => {
   );
 
   const sessions = graph.edges.filter((edge) => edge.kind === "session");
-  assert.deepEqual(sessions.map((edge) => edge.id), [
-    "session:film:a:film:b",
-    "session:film:a:film:c",
-    "session:film:b:film:c",
-  ]);
+  assert.deepEqual(
+    sessions.map((edge) => edge.id),
+    ["session:film:a:film:b", "session:film:a:film:c", "session:film:b:film:c"],
+  );
 });
 
 test("a day past the session cap is treated as a backfill, not a marathon", () => {
@@ -310,10 +294,7 @@ test("viewings with no date and films outside the library are ignored", () => {
   const graph = buildGraph(
     library(
       [film("a", 1975), film("b", 1978)],
-      [
-        ...sameDay(null, ["a", "b"]),
-        ...sameDay("2024-03-01", ["a", "ghost"]),
-      ],
+      [...sameDay(null, ["a", "b"]), ...sameDay("2024-03-01", ["a", "ghost"])],
     ),
     byDecade,
   );
@@ -340,17 +321,14 @@ test("the same library always yields the same graph", () => {
 
 test("neighbours resolve in both directions", () => {
   const graph = buildGraph(
-    library(
-      [film("a", 1975), film("b", 1978)],
-      sameDay("2024-03-01", ["a", "b"]),
-    ),
+    library([film("a", 1975), film("b", 1978)], sameDay("2024-03-01", ["a", "b"])),
     byDecade,
   );
 
-  assert.deepEqual(
-    [...neighboursOf(graph, "film:a")].sort(),
-    ["film:b", "hub:decade:1970"],
-  );
+  assert.deepEqual([...neighboursOf(graph, "film:a")].sort(), [
+    "film:b",
+    "hub:decade:1970",
+  ]);
   assert.deepEqual([...neighboursOf(graph, "hub:decade:1970")].sort(), [
     "film:a",
     "film:b",
@@ -493,12 +471,12 @@ test("rating hubs are half-star bands, labelled as ticks", () => {
   );
 
   assert.equal(graph.groupKind, "rating");
-  assert.deepEqual(orderedHubs(graph).map((hub) => hub.label), ["½", "3", "5"]);
-  // b and c share one band rather than each getting their own.
-  assert.equal(
-    graph.nodes.find((node) => node.id === "hub:rating:30")?.degree,
-    2,
+  assert.deepEqual(
+    orderedHubs(graph).map((hub) => hub.label),
+    ["½", "3", "5"],
   );
+  // b and c share one band rather than each getting their own.
+  assert.equal(graph.nodes.find((node) => node.id === "hub:rating:30")?.degree, 2);
 });
 
 test("watch years come from the diary, and a rewatch bridges two of them", () => {
@@ -515,7 +493,10 @@ test("watch years come from the diary, and a rewatch bridges two of them", () =>
   );
 
   assert.equal(graph.groupKind, "watch year");
-  assert.deepEqual(orderedHubs(graph).map((hub) => hub.label), ["2022", "2024"]);
+  assert.deepEqual(
+    orderedHubs(graph).map((hub) => hub.label),
+    ["2022", "2024"],
+  );
 
   /*
     The one axis where multiple membership is meaningful: film a was seen in both

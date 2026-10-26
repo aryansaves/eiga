@@ -6,9 +6,23 @@
  * arrow keys follow the viewing order without adding hundreds of tab stops.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { select } from "d3-selection";
-import { zoom, zoomIdentity, zoomTransform, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
+import {
+  zoom,
+  zoomIdentity,
+  zoomTransform,
+  type D3ZoomEvent,
+  type ZoomBehavior,
+  type ZoomTransform,
+} from "d3-zoom";
 
 import { RATING_MAX } from "@/domain/types.ts";
 import {
@@ -153,12 +167,23 @@ function mapDescription(graph: Graph, films: number): string {
   const first = graph.years[0];
   const last = graph.years[graph.years.length - 1];
   const span =
-    first === undefined ? "" : first === last ? ` in ${first}` : ` from ${first} to ${last}`;
+    first === undefined
+      ? ""
+      : first === last
+        ? ` in ${first}`
+        : ` from ${first} to ${last}`;
   const unknownDates = undated === 0 ? "" : `, including ${undated} with unknown dates`;
   return `Journey through ${viewings} viewings of ${films} films${span}${unknownDates}`;
 }
 
-export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }: GraphViewProps) {
+export function GraphView({
+  graph,
+  focusedId,
+  onFocus,
+  lit,
+  travel,
+  surfaceRef,
+}: GraphViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const viewportRef = useRef<SVGGElement>(null);
@@ -246,7 +271,10 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
   const ready = layoutWidth > 0 && layoutHeight > 0;
 
   // Structure, straight from the graph. Deliberately free of coordinates.
-  const films = useMemo(() => graph.nodes.filter((node) => node.kind === "film"), [graph]);
+  const films = useMemo(
+    () => graph.nodes.filter((node) => node.kind === "film"),
+    [graph],
+  );
   const hubs = useMemo(() => graph.nodes.filter((node) => node.kind === "hub"), [graph]);
 
   /**
@@ -373,7 +401,10 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
       for (const node of layout.nodes) {
         nodeEls.current
           .get(node.id)
-          ?.setAttribute("transform", `translate(${node.x.toFixed(2)} ${node.y.toFixed(2)})`);
+          ?.setAttribute(
+            "transform",
+            `translate(${node.x.toFixed(2)} ${node.y.toFixed(2)})`,
+          );
       }
       for (const edge of layout.edges) {
         const el = edgeEls.current.get(edge.id);
@@ -394,7 +425,6 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
 
     const frame = () => frameTo(layout, sizeRef.current);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
 
     /*
       A map that is not re-sorting settles before it is shown. Watching a hundred
@@ -538,7 +568,13 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
       one enormous dot filling the screen — a single film's extent is some 13px
       across, so the uncapped fit would be about 90×.
     */
-    const fit = fitToFrame(matches, viewport.width, viewport.height, [], insetFor(viewport));
+    const fit = fitToFrame(
+      matches,
+      viewport.width,
+      viewport.height,
+      [],
+      insetFor(viewport),
+    );
     behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
   }, [travel]);
 
@@ -660,8 +696,12 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
                     data-lit={litState(node)}
                     data-rewatch={node.rewatch ? "true" : undefined}
                     role="button"
-                    tabIndex={graph.shape === "thread" &&
-                      (focusedId ? focusedId === node.id : node.id === films[0]?.id) ? 0 : -1}
+                    tabIndex={
+                      graph.shape === "thread" &&
+                      (focusedId ? focusedId === node.id : node.id === films[0]?.id)
+                        ? 0
+                        : -1
+                    }
                     aria-label={filmDescription(node)}
                     aria-pressed={node.id === focusedId}
                     onClick={() => toggle(node.id)}
@@ -672,10 +712,18 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
                         toggle(node.id);
                       } else if (event.key === "Escape") {
                         onFocus(null);
-                      } else if (["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(event.key)) {
+                      } else if (
+                        ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(
+                          event.key,
+                        )
+                      ) {
                         event.preventDefault();
-                        const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-                        const next = films[films.findIndex((film) => film.id === node.id) + step];
+                        const step =
+                          event.key === "ArrowRight" || event.key === "ArrowDown"
+                            ? 1
+                            : -1;
+                        const next =
+                          films[films.findIndex((film) => film.id === node.id) + step];
                         if (next) {
                           onFocus(next.id);
                           nodeEls.current.get(next.id)?.focus();
@@ -687,7 +735,9 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
                     {graph.shape === "thread" && (
                       <circle r={14} style={{ fill: "transparent", stroke: "none" }} />
                     )}
-                    {node.rewatch && <circle className="eiga-rewatch-ring" r={radius + 3} />}
+                    {node.rewatch && (
+                      <circle className="eiga-rewatch-ring" r={radius + 3} />
+                    )}
                     <circle r={radius} />
                     {node.milestone && (
                       <text className="eiga-journey-caption" y={-radius} dy="-1.1em">
@@ -741,7 +791,8 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
         </g>
       </svg>
       {graph.shape === "thread" && (
-        <button type="button"
+        <button
+          type="button"
           className="eiga-button bg-void absolute right-3 bottom-3 sm:right-12 sm:bottom-36"
           onClick={() => {
             onFocus(null);
@@ -750,7 +801,8 @@ export function GraphView({ graph, focusedId, onFocus, lit, travel, surfaceRef }
             const layout = layoutRef.current;
             if (layout) frameTo(layout, sizeRef.current);
             applyNames();
-          }}>
+          }}
+        >
           Whole journey
         </button>
       )}

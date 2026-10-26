@@ -29,7 +29,7 @@ import { ORIGIN } from "./site.ts";
 */
 const TITLE = "EIGA";
 const DESCRIPTION =
-  "Turn your Letterboxd history into an interactive map of your movie taste. Processed entirely in your browser.";
+  "Explore your Letterboxd history as an interactive film map. Import locally, or sign in to save and share your atlas.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(ORIGIN),

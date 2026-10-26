@@ -10,7 +10,13 @@ import {
   type Library,
   type WatchEvent,
 } from "../domain/types.ts";
-import { buildGraph, byDecade, byRating, byWatchYear, orderedHubs } from "../graph/build.ts";
+import {
+  buildGraph,
+  byDecade,
+  byRating,
+  byWatchYear,
+  orderedHubs,
+} from "../graph/build.ts";
 import { buildThread, unthreaded } from "../graph/thread.ts";
 import {
   clusterReach,
@@ -73,7 +79,10 @@ interface Placement {
  * correct edge data fixes it, because the reader sees position long before they
  * trace a line.
  */
-function placement(nodes: readonly LayoutNode[], memberships: ReadonlyMap<string, Set<string>>): Placement {
+function placement(
+  nodes: readonly LayoutNode[],
+  memberships: ReadonlyMap<string, Set<string>>,
+): Placement {
   const at = new Map(nodes.map((node) => [node.id, node]));
   const hubs = nodes.filter((node) => node.kind === "hub");
 
@@ -100,7 +109,8 @@ function placement(nodes: readonly LayoutNode[], memberships: ReadonlyMap<string
     let ownDistance = Infinity;
     for (const id of own) {
       const hub = at.get(id);
-      if (hub) ownDistance = Math.min(ownDistance, Math.hypot(hub.x - node.x, hub.y - node.y));
+      if (hub)
+        ownDistance = Math.min(ownDistance, Math.hypot(hub.x - node.x, hub.y - node.y));
     }
     min = Math.min(min, ownDistance);
     max = Math.max(max, ownDistance);
@@ -110,7 +120,9 @@ function placement(nodes: readonly LayoutNode[], memberships: ReadonlyMap<string
 }
 
 /** Which hubs each film belongs to, read back off the graph's membership edges. */
-function membershipsOf(edges: readonly { kind: string; source: string; target: string }[]) {
+function membershipsOf(
+  edges: readonly { kind: string; source: string; target: string }[],
+) {
   const map = new Map<string, Set<string>>();
   for (const edge of edges) {
     if (edge.kind !== "membership") continue;
@@ -383,7 +395,13 @@ function diaryLibrary(): Library {
   let day = 0;
   for (let i = 0; i < 124; i += 1) {
     const id = `f${String(i).padStart(3, "0")}`;
-    films.push({ id, title: `Film ${i}`, year: 1970 + (i % 50), uri: null, directors: [] });
+    films.push({
+      id,
+      title: `Film ${i}`,
+      year: 1970 + (i % 50),
+      uri: null,
+      directors: [],
+    });
     // Every rating band, so film radii vary as they do in a real library.
     ratings.set(id, RATING_MIN + (i % 10) * RATING_STEP);
 
@@ -416,12 +434,19 @@ test("the winding journey replaces calendar rows with chronological stops", () =
   const orders = graph.nodes
     .filter((node) => node.order !== null)
     .map((node) => node.order);
-  assert.deepEqual(orders, [...orders].sort((a, b) => a! - b!));
+  assert.deepEqual(
+    orders,
+    [...orders].sort((a, b) => a! - b!),
+  );
 });
 
 test("longer gaps get more room along the journey", () => {
   const films: Film[] = ["a", "b", "c"].map((id) => ({
-    id, title: id.toUpperCase(), year: 2024, uri: null, directors: [],
+    id,
+    title: id.toUpperCase(),
+    year: 2024,
+    uri: null,
+    directors: [],
   }));
   const graph = buildThread({
     films,
@@ -430,7 +455,9 @@ test("longer gaps get more room along the journey", () => {
       { filmId: "b", watchedOn: "2024-01-02", rewatch: false },
       { filmId: "c", watchedOn: "2024-06-01", rewatch: false },
     ],
-    ratings: new Map(), reviews: new Map(), likes: new Set(),
+    ratings: new Map(),
+    reviews: new Map(),
+    likes: new Set(),
   });
   const layout = createLayout(graph, WIDTH, HEIGHT);
   const dated = layout.nodes.filter((node) => node.order !== null);

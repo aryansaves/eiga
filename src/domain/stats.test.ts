@@ -4,11 +4,7 @@ import assert from "node:assert/strict";
 import { observe } from "./stats.ts";
 import type { Film, FilmId, Library, WatchEvent } from "./types.ts";
 
-function film(
-  id: string,
-  year: number | null,
-  directors: readonly string[] = [],
-): Film {
+function film(id: string, year: number | null, directors: readonly string[] = []): Film {
   return { id, title: `Film ${id}`, year, uri: null, directors };
 }
 
@@ -60,11 +56,7 @@ test("reports a decade the library leans on", () => {
 
 test("an even spread is a range, not a preference", () => {
   const result = observe(
-    library([
-      ...spread(4, 1975),
-      ...spread(4, 1985),
-      ...spread(4, 1995),
-    ]),
+    library([...spread(4, 1975), ...spread(4, 1985), ...spread(4, 1995)]),
     null,
   );
   assert.equal(result, "Your cinema spans 3 decades.");
@@ -93,7 +85,10 @@ test("the same library always produces the same sentence", () => {
 
 test("names the busiest year, but only when one year is clearly busiest", () => {
   const films = spread(12, 2015);
-  const clear = library(films, [...viewings(8, "2024-03-01"), ...viewings(4, "2023-03-01", 8)]);
+  const clear = library(films, [
+    ...viewings(8, "2024-03-01"),
+    ...viewings(4, "2023-03-01", 8),
+  ]);
   assert.equal(
     observe(clear, "watchYear"),
     "2024 was your busiest year — 8 of 12 viewings.",
@@ -104,7 +99,10 @@ test("names the busiest year, but only when one year is clearly busiest", () => 
     support, so the candidate withdraws — and since nothing else about this
     library clears a threshold, the honest result is silence.
   */
-  const tied = library(films, [...viewings(6, "2024-03-01"), ...viewings(6, "2023-03-01", 6)]);
+  const tied = library(films, [
+    ...viewings(6, "2024-03-01"),
+    ...viewings(6, "2023-03-01", 6),
+  ]);
   assert.equal(observe(tied, "watchYear"), null);
 });
 
