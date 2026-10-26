@@ -40,7 +40,7 @@ export function ThemeControl() {
         <circle cx="10" cy="10" r="6" stroke="currentColor" />
         <path d="M10 4a6 6 0 0 1 0 12Z" fill="currentColor" />
       </svg>
-      {light ? "Dark mode" : "Light mode"}
+      <span className="eiga-theme-label">{light ? "Dark mode" : "Light mode"}</span>
     </button>
   );
 }

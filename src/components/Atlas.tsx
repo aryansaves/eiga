@@ -558,11 +558,10 @@ export function Atlas() {
             which is what turned 200px of chrome into 475px and pushed the save
             control onto the map.
 
-            No `gap-y`: `AxisControl` opens with `mt-5` and the search and
-            highlight rows with `mt-3`, so the vertical rhythm is already stated
-            once, in the controls themselves.
+            Mobile spacing is scoped to the atlas bands in CSS; desktop
+            keeps the more open caption layout.
           */}
-          <div className="from-void via-void/85 border-rule pointer-events-none relative z-10 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-b px-7 pt-7 pb-5 sm:absolute sm:inset-x-0 sm:top-0 sm:gap-x-8 sm:border-0 sm:bg-linear-to-b sm:to-transparent sm:px-12 sm:pb-20">
+          <div className="eiga-atlas-header from-void via-void/85 border-rule pointer-events-none relative z-10 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-b px-7 pt-7 pb-5 sm:absolute sm:inset-x-0 sm:top-0 sm:gap-x-8 sm:border-0 sm:bg-linear-to-b sm:to-transparent sm:px-12 sm:pb-20">
             <div className="col-start-1 row-start-1">
               {/*
                 The same heading the landing carries, at caption size. An `h1` in
@@ -597,7 +596,7 @@ export function Atlas() {
             </div>
 
             {/* Keep account controls and file actions in two contained rows. */}
-            <div className="pointer-events-auto col-start-2 row-start-1 flex min-w-0 flex-col items-end gap-3 justify-self-end sm:row-span-2">
+            <div className="eiga-atlas-actions pointer-events-auto col-start-2 row-start-1 flex min-w-0 flex-col items-end gap-3 justify-self-end sm:row-span-2">
               <div className="flex max-w-full flex-wrap justify-end gap-2">
                 <ThemeControl />
                 {readOnly ? (
@@ -654,7 +653,7 @@ export function Atlas() {
                 onToggle={toggleHighlight}
               />
               {active.id === "diary" && (
-                <p className="eiga-annotation mt-3 max-w-sm text-balance">
+                <p className="eiga-annotation mt-3 max-w-sm text-balance max-sm:hidden">
                   Longer gaps get more room
                 </p>
               )}
@@ -703,7 +702,7 @@ export function Atlas() {
             />
           </div>
 
-          <div className="from-void via-void/85 border-rule pointer-events-none relative z-10 flex shrink-0 flex-wrap items-end justify-between gap-6 border-t px-7 pt-5 pb-7 sm:absolute sm:inset-x-0 sm:bottom-0 sm:gap-8 sm:border-0 sm:bg-linear-to-t sm:to-transparent sm:px-12 sm:pt-20">
+          <div className="eiga-atlas-footer from-void via-void/85 border-rule pointer-events-none relative z-10 flex shrink-0 flex-wrap items-end justify-between gap-6 border-t px-7 pt-5 pb-7 sm:absolute sm:inset-x-0 sm:bottom-0 sm:gap-8 sm:border-0 sm:bg-linear-to-t sm:to-transparent sm:px-12 sm:pt-20">
             {/*
               Given a fixed plate on a phone rather than being allowed to grow.
 
@@ -716,7 +715,7 @@ export function Atlas() {
               fixed plate that scrolls keeps the map still; above `sm` the label
               floats over the map and can be exactly as tall as it needs to be.
             */}
-            <div className="pointer-events-auto max-sm:h-36 max-sm:w-full max-sm:overflow-y-auto">
+            <div className="eiga-atlas-inspector pointer-events-auto max-sm:h-36 max-sm:w-full max-sm:overflow-y-auto">
               <Inspector
                 graph={graph}
                 library={library}
@@ -735,7 +734,7 @@ export function Atlas() {
               phone, where it is a full-width row under the label and ranging it
               right would leave it hanging off the end of nothing.
             */}
-            <div className="pointer-events-auto text-right max-sm:w-full max-sm:text-left">
+            <div className="eiga-atlas-status pointer-events-auto text-right max-sm:w-full max-sm:text-left">
               {/*
                 `text-balance` because this line is composed, not written, so its
                 length is a property of the library and cannot be checked once.
@@ -778,17 +777,19 @@ export function Atlas() {
                 built and is worth reading twice; leaving the demo discards nothing
                 and should not be dressed up as though it might.
               */}
-              {readOnly ? (
-                <p className="eiga-annotation mt-4">Read only</p>
-              ) : imported ? (
-                <div className="mt-4">
-                  <ImportReport result={imported} onReset={reset} />
-                </div>
-              ) : (
-                <button type="button" onClick={reset} className="eiga-button mt-4">
-                  {accountLibrary ? "Close atlas" : "Leave the demo"}
-                </button>
-              )}
+              <div className="eiga-atlas-exit">
+                {readOnly ? (
+                  <p className="eiga-annotation mt-4">Read only</p>
+                ) : imported ? (
+                  <div className="mt-4">
+                    <ImportReport result={imported} onReset={reset} />
+                  </div>
+                ) : (
+                  <button type="button" onClick={reset} className="eiga-button mt-4">
+                    {accountLibrary ? "Close atlas" : "Leave the demo"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </>

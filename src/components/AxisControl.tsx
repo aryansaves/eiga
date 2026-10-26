@@ -28,7 +28,7 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
   const sole = options.length === 1 ? options[0] : null;
 
   return (
-    <div className="mt-5 flex flex-wrap items-center gap-3">
+    <div className="eiga-axis-control mt-5 flex flex-wrap items-center gap-3">
       <span className="eiga-annotation">Axis</span>
       <span className="bg-rule h-px w-4 shrink-0" aria-hidden="true" />
 
@@ -63,7 +63,7 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
             shrink, the group starts on the legend's line and takes two. Above `sm`
             everything fits on one line and this changes nothing.
           */
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-3"
+          className="eiga-axis-options flex min-w-0 flex-1 flex-wrap items-center gap-3"
         >
           {options.map((axis) => {
             const selected = axis.id === active;
@@ -71,6 +71,7 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
               <button
                 key={axis.id}
                 type="button"
+                aria-label={axis.label}
                 aria-pressed={selected}
                 onClick={() => onSelect(axis.id)}
                 /*
@@ -84,7 +85,14 @@ export function AxisControl({ options, active, onSelect }: AxisControlProps) {
                     : "hover:text-paper-mid border-transparent"
                 }`}
               >
-                {axis.label}
+                {axis.id === "diary" ? (
+                  <>
+                    <span className="sm:hidden">Journey</span>
+                    <span className="hidden sm:inline">{axis.label}</span>
+                  </>
+                ) : (
+                  axis.label
+                )}
               </button>
             );
           })}

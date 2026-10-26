@@ -22,7 +22,7 @@ export interface SearchControlProps {
 
 export function SearchControl({ query, onQuery, found }: SearchControlProps) {
   return (
-    <div className="mt-3 flex items-center gap-3">
+    <div className="eiga-search-control mt-3 flex items-center gap-3">
       <label className="eiga-annotation" htmlFor="eiga-search">
         Find
       </label>

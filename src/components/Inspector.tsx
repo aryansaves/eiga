@@ -44,8 +44,14 @@ function RatingScale({ rating }: { readonly rating: number }) {
   );
 }
 
-function Meta({ children }: { readonly children: React.ReactNode }) {
-  return <p className="eiga-annotation mt-3">{children}</p>;
+function Meta({
+  children,
+  className = "",
+}: {
+  readonly children: React.ReactNode;
+  readonly className?: string;
+}) {
+  return <p className={`eiga-annotation mt-3 ${className}`}>{children}</p>;
 }
 
 export function Inspector({
@@ -76,9 +82,17 @@ export function Inspector({
             Nothing selected.
           </p>
         )}
-        <Meta>{journey ? "One stop per viewing · rings mark rewatches" : "Select a film or a group"}</Meta>
+        <Meta className={journey ? "max-sm:hidden" : ""}>
+          {journey
+            ? "One stop per viewing · rings mark rewatches"
+            : "Select a film or a group"}
+        </Meta>
         {journey && stops[0] && (
-          <button className="eiga-button mt-3" type="button" onClick={() => onFocus(stops[0].id)}>
+          <button
+            className="eiga-button mt-3"
+            type="button"
+            onClick={() => onFocus(stops[0].id)}
+          >
             Follow your journey
           </button>
         )}
@@ -128,8 +142,12 @@ export function Inspector({
     detail.film.year === null ? null : String(detail.film.year),
     detail.film.directors.length > 0 ? detail.film.directors.join(", ") : null,
     journey
-      ? node.watchedOn ? `${node.rewatch ? "Rewatched" : "Seen"} ${node.watchedOn}` : "Watch date unknown"
-      : detail.watchedOn === null ? null : `Seen ${detail.watchedOn}`,
+      ? node.watchedOn
+        ? `${node.rewatch ? "Rewatched" : "Seen"} ${node.watchedOn}`
+        : "Watch date unknown"
+      : detail.watchedOn === null
+        ? null
+        : `Seen ${detail.watchedOn}`,
     !journey && detail.rewatchCount > 0
       ? `${detail.rewatchCount} ${detail.rewatchCount === 1 ? "rewatch" : "rewatches"}`
       : null,
@@ -147,13 +165,27 @@ export function Inspector({
         <div className="mt-3">
           <p className="eiga-annotation">
             Stop {stopIndex + 1} of {stops.length}
-            {(node.gapDays ?? 0) > 1 ? ` · ${node.gapDays} days since the previous log` : ""}
+            {(node.gapDays ?? 0) > 1
+              ? ` · ${node.gapDays} days since the previous log`
+              : ""}
           </p>
           <div className="mt-2 flex gap-2">
-            <button type="button" className="eiga-button" disabled={!previous}
-              onClick={() => previous && onFocus(previous.id)}>Previous</button>
-            <button type="button" className="eiga-button" disabled={!next}
-              onClick={() => next && onFocus(next.id)}>Next</button>
+            <button
+              type="button"
+              className="eiga-button"
+              disabled={!previous}
+              onClick={() => previous && onFocus(previous.id)}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="eiga-button"
+              disabled={!next}
+              onClick={() => next && onFocus(next.id)}
+            >
+              Next
+            </button>
           </div>
         </div>
       )}

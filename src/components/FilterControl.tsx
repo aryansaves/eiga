@@ -33,11 +33,15 @@ export function FilterControl({ options, active, onToggle }: FilterControlProps)
   if (options.length === 0) return null;
 
   return (
-    <div className="mt-3 flex items-center gap-3">
+    <div className="eiga-filter-control mt-3 flex items-center gap-3">
       <span className="eiga-annotation">Highlight</span>
       <span className="bg-rule h-px w-4 shrink-0" aria-hidden="true" />
 
-      <div role="group" aria-label="Highlight films that are" className="flex items-center gap-3">
+      <div
+        role="group"
+        aria-label="Highlight films that are"
+        className="flex items-center gap-3"
+      >
         {options.map((option) => {
           const on = active.includes(option.id);
           return (
@@ -47,7 +51,9 @@ export function FilterControl({ options, active, onToggle }: FilterControlProps)
               aria-pressed={on}
               onClick={() => onToggle(option.id)}
               className={`eiga-annotation border-b pb-0.5 transition-colors duration-200 ${
-                on ? "text-signal border-signal" : "hover:text-paper-mid border-transparent"
+                on
+                  ? "text-signal border-signal"
+                  : "hover:text-paper-mid border-transparent"
               }`}
             >
               {/*
