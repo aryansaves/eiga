@@ -184,7 +184,9 @@ export function Atlas() {
     surface shows its graticule and nothing else.
   */
   const readOnly = shareRequested;
-  const landing = sourceReady && !readOnly && !usable && !demoAsked;
+  // Prerender the introduction and guide links before browser-only source detection.
+  // StartupOverlay and load() still guard interaction until the source is ready.
+  const landing = !sourceReady || (!readOnly && !usable && !demoAsked);
   const localLibrary = importedUsable ? imported!.library : null;
   const ownsLocalTarget = Boolean(
     lastSaved?.userId === accountUserId && lastSaved?.library === localLibrary,

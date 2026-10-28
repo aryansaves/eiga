@@ -27,9 +27,9 @@ import { ORIGIN } from "./site.ts";
   and the guess is usually the first heading it finds. Repeating them here is not
   duplication; it is the only way the card says what the page says.
 */
-const TITLE = "EIGA";
+const TITLE = "Eiga — Letterboxd exports as a movie graph";
 const DESCRIPTION =
-  "Explore your Letterboxd history as an interactive film map. Import locally, or sign in to save and share your atlas.";
+  "Turn Letterboxd exports into your own movie graph with Eiga. Explore watch dates, ratings and decades. Import ZIP or CSV files locally, without an account.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(ORIGIN),

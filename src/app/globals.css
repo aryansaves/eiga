@@ -754,3 +754,94 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Static field guides share the atlas palette while allowing ordinary reading. */
+.eiga-guide {
+  width: min(100%, 58rem);
+  margin-inline: auto;
+  padding: 2rem clamp(1.25rem, 5vw, 3rem) 5rem;
+  line-height: 1.75;
+}
+.eiga-guide nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: center;
+  margin-bottom: 4rem;
+}
+.eiga-guide a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.eiga-guide a:hover {
+  color: var(--color-paper);
+}
+.eiga-guide h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 1.12;
+  margin-block: 1rem 1.5rem;
+  text-wrap: balance;
+}
+.eiga-guide h2 {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  line-height: 1.3;
+  margin-bottom: 1.25rem;
+}
+.eiga-guide h3,
+.eiga-guide dt {
+  font-weight: 600;
+  margin-top: 1.5rem;
+}
+.eiga-guide p,
+.eiga-guide dd {
+  margin-bottom: 1.25rem;
+}
+.eiga-guide section,
+.eiga-guide footer {
+  border-top: 1px solid var(--color-rule);
+  margin-top: 3rem;
+  padding-top: 2rem;
+}
+.eiga-guide-deck {
+  font-size: 1.2rem;
+}
+.eiga-guide-credit,
+.eiga-guide figcaption {
+  color: var(--color-paper-mid);
+  font-size: 0.875rem;
+}
+.eiga-guide ol {
+  padding-left: 1.5rem;
+  list-style: decimal;
+}
+.eiga-guide li {
+  margin-block: 1rem;
+  padding-left: 0.5rem;
+}
+.eiga-guide-table {
+  overflow-x: auto;
+}
+.eiga-guide table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.eiga-guide caption {
+  text-align: left;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+.eiga-guide th,
+.eiga-guide td {
+  border-bottom: 1px solid var(--color-rule);
+  padding: 0.8rem;
+  text-align: left;
+  vertical-align: top;
+}
+.eiga-guide-diagram {
+  width: 100%;
+  height: auto;
+  margin-block: 1.5rem;
+}

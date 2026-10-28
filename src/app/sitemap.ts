@@ -4,11 +4,9 @@ import { ORIGIN } from "./site.ts";
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [
-    {
-      url: ORIGIN,
-      changeFrequency: "monthly",
-      priority: 1,
-    },
-  ];
+  return ["", "/letterboxd-exports", "/movie-graph"].map((path) => ({
+    url: `${ORIGIN}${path}`,
+    changeFrequency: "monthly",
+    priority: path === "" ? 1 : 0.8,
+  }));
 }

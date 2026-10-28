@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 /**
  * The front door.
  *
@@ -69,14 +71,14 @@ export function Landing({
       right leaves the prose on near-solid graphite, keeps the grid visible where
       there is nothing to read, and gives the empty surface some depth.
     */
-    <div className="from-void via-void/85 pointer-events-none absolute inset-0 flex items-center bg-linear-to-r to-transparent px-7 sm:px-12">
-      <div className="pointer-events-auto max-w-xl">
+    <div className="from-void via-void/85 pointer-events-none absolute inset-0 overflow-y-auto bg-linear-to-r to-transparent px-7 py-8 sm:px-12">
+      <div className="pointer-events-auto my-auto max-w-xl shrink-0">
         <h1 className="eiga-mark text-paper text-2xl sm:text-3xl">EIGA</h1>
-        <p className="eiga-annotation mt-4">Your cinema, mapped.</p>
+        <p className="eiga-annotation mt-4">Your Letterboxd movie graph.</p>
 
         <p className="font-display text-paper mt-9 text-xl leading-snug text-balance sm:text-2xl">
-          Your Letterboxd export becomes a map: every film you have seen, placed on the
-          day you saw it — and redrawn by decade, by rating, by the year you watched it.
+          Turn Letterboxd exports into a movie graph. Follow your logged watch dates, then
+          explore your films by decade, rating or watch year.
         </p>
 
         {/*
@@ -125,6 +127,13 @@ export function Landing({
           </button>
         </p>
         {accountControl && <div className="mt-6">{accountControl}</div>}
+        <nav
+          aria-label="Eiga guides"
+          className="text-paper-mid mt-6 flex flex-wrap gap-x-6 gap-y-3 text-sm underline underline-offset-4"
+        >
+          <Link href="/letterboxd-exports">How to use Letterboxd exports</Link>
+          <Link href="/movie-graph">How Eiga’s movie graph works</Link>
+        </nav>
       </div>
     </div>
   );
