@@ -71,7 +71,7 @@ export function Landing({
       right leaves the prose on near-solid graphite, keeps the grid visible where
       there is nothing to read, and gives the empty surface some depth.
     */
-    <div className="from-void via-void/85 pointer-events-none absolute inset-0 overflow-y-auto bg-linear-to-r to-transparent px-7 py-8 sm:px-12">
+    <div className="from-void via-void/85 pointer-events-none absolute inset-0 flex flex-col overflow-y-auto bg-linear-to-r to-transparent px-7 py-8 sm:px-12">
       <div className="pointer-events-auto my-auto max-w-xl shrink-0">
         <h1 className="eiga-mark text-paper text-2xl sm:text-3xl">EIGA</h1>
         <p className="eiga-annotation mt-4">Your Letterboxd movie graph.</p>
