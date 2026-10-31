@@ -41,7 +41,7 @@ interface SuccessfulTarget {
 
 export function useAccount(
   onRestorePending?: (library: Library) => void,
-  onSaveConflict?: () => void,
+  onUseSaved?: () => void,
 ) {
   const [session, setSession] = useState<Session>({ user: null, csrfToken: null });
   const [ready, setReady] = useState(false);
@@ -101,6 +101,7 @@ export function useAccount(
         commitSession(nextSession);
         setNotice("");
         setSaved(result);
+        if (result) onUseSaved?.();
         revisions.current.reset(
           { epoch: currentEpoch, userId: nextSession.user.id },
           result?.revision ?? 0,
@@ -122,7 +123,7 @@ export function useAccount(
         setReady(true);
       }
     }
-  }, [commitSession]);
+  }, [commitSession, onUseSaved]);
 
   useEffect(() => {
     mounted.current = true;
@@ -166,13 +167,15 @@ export function useAccount(
         activeTarget?.userId === owner.userId &&
         activeTarget.allowed
       ) {
-        onSaveConflict?.();
+        onUseSaved?.();
         setNotice(
-          "Your saved atlas changed in another session. Choose which atlas to keep.",
+          latest
+            ? "Showing the latest saved atlas. Upload your export again to replace it."
+            : "Your saved atlas was removed in another session. Upload your export again to save it.",
         );
       }
     },
-    [onSaveConflict],
+    [onUseSaved],
   );
 
   const enqueueSave = useCallback(

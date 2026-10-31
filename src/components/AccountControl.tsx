@@ -7,7 +7,7 @@ export interface AccountUser {
   readonly name: string;
 }
 
-type View = "account" | "share" | "delete" | null;
+type View = "account" | "delete" | null;
 
 export function AccountControl({
   user,
@@ -70,9 +70,35 @@ export function AccountControl({
   return (
     <>
       {user ? (
-        <button type="button" className="eiga-button" onClick={() => setView("account")}>
-          Share
-        </button>
+        <>
+          <button
+            type="button"
+            className="eiga-button"
+            disabled={busy}
+            onClick={() => {
+              setMessage("");
+              setView("account");
+              if (!sharedActive && canShare && saving === "idle")
+                void act(async () => {
+                  await onShare();
+                }, "Share link ready.");
+            }}
+          >
+            Share
+          </button>
+          <button
+            type="button"
+            className="eiga-button"
+            disabled={busy}
+            onClick={() =>
+              void act(onLogout, "").then((ok) => {
+                if (ok) setView(null);
+              })
+            }
+          >
+            Sign out
+          </button>
+        </>
       ) : (
         <button type="button" className="eiga-button" onClick={onLogin}>
           Sign in
@@ -158,10 +184,11 @@ export function AccountControl({
                   type="button"
                   className="eiga-button"
                   disabled={!canShare || saving !== "idle" || busy}
-                  onClick={() => {
-                    setMessage("");
-                    setView("share");
-                  }}
+                  onClick={() =>
+                    void act(async () => {
+                      await onShare();
+                    }, "Share link ready.")
+                  }
                 >
                   Share this atlas
                 </button>
@@ -195,67 +222,13 @@ export function AccountControl({
                 Import a library and let it save before sharing.
               </p>
             )}
-            <div className="eiga-dialog-actions border-rule mt-6 border-t pt-6">
+            <div className="border-rule mt-6 border-t pt-6">
               <button
                 type="button"
-                className="eiga-button"
-                disabled={busy}
-                onClick={() =>
-                  void act(onLogout, "Signed out.").then((ok) => {
-                    if (ok) dialog.current?.close();
-                  })
-                }
-              >
-                Sign out
-              </button>
-              <button
-                type="button"
-                className="eiga-button"
+                className="eiga-button w-full"
                 onClick={() => dialog.current?.close()}
               >
                 Close
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {user && view === "share" ? (
-          <div className="eiga-dialog-content">
-            <p className="eiga-mark text-signal text-xs">PUBLIC SHARE</p>
-            <h2 id={titleId} className="font-display mt-3 text-2xl">
-              Share your saved atlas?
-            </h2>
-            <p className="text-paper-mid mt-4 text-sm leading-relaxed text-balance">
-              Anyone with the link can view your saved films, watch dates, ratings, likes,
-              and review text. Reviews can be personal. New uploads update this same link
-              automatically. You can stop sharing or delete your saved atlas at any time.
-            </p>
-            {message && (
-              <p role="status" className="eiga-annotation mt-4">
-                {message}
-              </p>
-            )}
-            <div className="eiga-dialog-actions mt-6">
-              <button
-                type="button"
-                className="eiga-button"
-                disabled={!canShare || busy}
-                onClick={() =>
-                  void act(async () => {
-                    await onShare();
-                  }, "Share link created.").then((ok) => {
-                    if (ok) setView("account");
-                  })
-                }
-              >
-                Publish link
-              </button>
-              <button
-                type="button"
-                className="eiga-button"
-                disabled={busy}
-                onClick={() => setView("account")}
-              >
-                Cancel
               </button>
             </div>
           </div>

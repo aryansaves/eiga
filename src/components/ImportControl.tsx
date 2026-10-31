@@ -41,9 +41,11 @@ const MAX_LISTED = 40;
 export function ImportControl({
   onFiles,
   hintClassName = "",
+  disabled = false,
 }: {
   readonly onFiles: (files: readonly File[]) => void;
   readonly hintClassName?: string;
+  readonly disabled?: boolean;
 }) {
   return (
     <div>
@@ -56,10 +58,11 @@ export function ImportControl({
         button with no edge to say where it began or ended. The subtitle is a
         sibling now — it says what the button takes, it is not part of pressing it.
       */}
-      <label className="eiga-button">
+      <label className="eiga-button" aria-disabled={disabled}>
         Upload
         <input
           type="file"
+          disabled={disabled}
           multiple
           accept=".zip,application/zip,.csv,text/csv"
           className="sr-only"

@@ -17,7 +17,7 @@
  * and `landing` below.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -77,8 +77,13 @@ export function Atlas() {
   const restorePending = useCallback((library: Library) => {
     setImported({ library, diagnostics: [], accepted: [], skipped: [] });
   }, []);
-  const saveConflict = useCallback(() => setLocalOverride(false), []);
-  const account = useAccount(restorePending, saveConflict);
+  const preferSaved = useCallback(() => {
+    ++importGeneration.current;
+    setImported(null);
+    setLocalOverride(false);
+    setAccountMessage("");
+  }, []);
+  const account = useAccount(restorePending, preferSaved);
   const router = useRouter();
   const accountUser = account.session.user;
   const accountUserId = accountUser?.id;
@@ -154,21 +159,14 @@ export function Atlas() {
   */
   const importedUsable = imported !== null && imported.library.films.length > 0;
   const accountLibrary = useMemo(() => {
-    if (
-      !sourceReady ||
-      shareRequested ||
-      !accountUser ||
-      !savedMap ||
-      importedUsable ||
-      localOverride
-    )
+    if (!sourceReady || shareRequested || !accountUser || !savedMap || localOverride)
       return null;
     try {
       return libraryFromSnapshot(savedMap.snapshot);
     } catch {
       return null;
     }
-  }, [sourceReady, shareRequested, accountUser, savedMap, importedUsable, localOverride]);
+  }, [sourceReady, shareRequested, accountUser, savedMap, localOverride]);
   const usable = shareRequested
     ? sharedLibrary !== null
     : accountLibrary !== null || importedUsable;
@@ -191,15 +189,6 @@ export function Atlas() {
   const ownsLocalTarget = Boolean(
     lastSaved?.userId === accountUserId && lastSaved?.library === localLibrary,
   );
-  const conflict = Boolean(
-    accountReady &&
-    accountUser &&
-    savedMap &&
-    importedUsable &&
-    !accountLibrary &&
-    !localOverride &&
-    !ownsLocalTarget,
-  );
 
   useEffect(() => {
     setSaveTarget(
@@ -209,7 +198,6 @@ export function Atlas() {
         sourceReady &&
         accountReady &&
         (!savedMap || localOverride || ownsLocalTarget) &&
-        !conflict &&
         !readOnly &&
         !accountLibrary,
       ),
@@ -224,7 +212,6 @@ export function Atlas() {
     savedMap,
     localOverride,
     ownsLocalTarget,
-    conflict,
     readOnly,
     accountLibrary,
   ]);
@@ -305,15 +292,15 @@ export function Atlas() {
 
   const load = useCallback(
     async (files: readonly File[]) => {
-      if (!sourceReady || readOnly) return;
+      if (!sourceReady || !accountReady || readOnly) return;
       const generation = ++importGeneration.current;
       const result = await importLetterboxdFiles([...files]);
       if (generation !== importGeneration.current) return;
       setImported(result);
       setFocusedId(null);
       setAccountMessage("");
-      // An explicit upload replaces this account's atlas; restored drafts still
-      // require a choice, and revision conflicts remain protected by the server.
+      // Only an explicit upload replaces an existing account atlas. Restored
+      // drafts defer to the saved version, and stale writes keep the server copy.
       setLocalOverride(Boolean(accountUser && accountReady));
     },
     [sourceReady, readOnly, accountUser, accountReady],
@@ -342,10 +329,6 @@ export function Atlas() {
     clearAccountNotice();
     setAccountMessage("Showing your saved atlas.");
   }, [savedMap, clearAccountNotice]);
-  const keepLocal = useCallback(() => {
-    setLocalOverride(true);
-    setAccountMessage("Your local import will replace your saved atlas after it saves.");
-  }, []);
   const exitShare = useCallback(() => {
     shareCancelled.current = true;
     setShareRequested(false);
@@ -364,8 +347,10 @@ export function Atlas() {
       // library locally rather than losing it with the account response.
       if (current && !importedUsable)
         setImported({ library: current, diagnostics: [], accepted: [], skipped: [] });
+      setAccountMessage("Could not sign out. Please try again.");
       throw error;
     }
+    setAccountMessage("");
     if (current && !importedUsable)
       setImported({
         library: current,
@@ -443,10 +428,7 @@ export function Atlas() {
       notice={account.notice}
       hasSaved={Boolean(account.saved)}
       canShare={Boolean(
-        account.saved &&
-        !conflict &&
-        (!localOverride || ownsLocalTarget) &&
-        account.saving === "idle",
+        account.saved && (!localOverride || ownsLocalTarget) && account.saving === "idle",
       )}
       onLogin={() => account.login(localLibrary)}
       onShare={account.share}
@@ -522,6 +504,7 @@ export function Atlas() {
           </div>
           <Landing
             onFiles={load}
+            importReady={sourceReady && accountReady}
             onDemo={() => setDemoAsked(true)}
             report={imported}
             onReset={reset}
@@ -586,7 +569,11 @@ export function Atlas() {
               </div>
               <div className="flex max-w-full flex-wrap justify-end gap-2">
                 {!readOnly && sourceReady && (
-                  <ImportControl onFiles={load} hintClassName="hidden" />
+                  <ImportControl
+                    onFiles={load}
+                    hintClassName="hidden"
+                    disabled={!accountReady}
+                  />
                 )}
                 {/*
                 The same hairline box as the import, and no quieter. It was an
@@ -777,9 +764,6 @@ export function Atlas() {
           <p className="eiga-mark text-signal text-xs">Release to read</p>
         </div>
       )}
-      {conflict && account.saved && !readOnly && (
-        <LibraryChoiceDialog onSaved={useSaved} onLocal={keepLocal} />
-      )}
       {account.notice && (
         <p
           role="status"
@@ -788,7 +772,7 @@ export function Atlas() {
           {account.notice}
         </p>
       )}
-      {accountMessage && !conflict && (
+      {accountMessage && (
         <p
           role="status"
           className="eiga-annotation pointer-events-none absolute right-7 bottom-3 z-30 sm:right-12"
@@ -798,46 +782,6 @@ export function Atlas() {
       )}
       {!sourceReady && !landing && <StartupOverlay />}
     </main>
-  );
-}
-
-function LibraryChoiceDialog({
-  onSaved,
-  onLocal,
-}: {
-  readonly onSaved: () => void;
-  readonly onLocal: () => void;
-}) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  useEffect(() => {
-    if (!dialog.current?.open) dialog.current?.showModal();
-  }, []);
-  return (
-    <dialog
-      ref={dialog}
-      aria-labelledby={titleId}
-      className="eiga-dialog text-paper backdrop:bg-void/75"
-    >
-      <div className="eiga-dialog-content">
-        <p className="eiga-mark text-signal text-xs">TWO ATLASES</p>
-        <h2 id={titleId} className="font-display mt-3 text-2xl">
-          Choose which atlas to open
-        </h2>
-        <p className="text-paper-mid mt-4 text-sm leading-relaxed">
-          You have a local import and an atlas saved to your account. Choose one to
-          continue. Keeping the local import will replace the saved atlas after it saves.
-        </p>
-        <div className="eiga-dialog-actions mt-6">
-          <button type="button" className="eiga-button" onClick={onSaved}>
-            Open saved atlas
-          </button>
-          <button type="button" className="eiga-button" onClick={onLocal}>
-            Keep local import
-          </button>
-        </div>
-      </div>
-    </dialog>
   );
 }
 

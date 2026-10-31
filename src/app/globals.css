@@ -240,7 +240,8 @@ body {
   deliberately: some engines still match `:hover` on a disabled control, and at
   equal specificity the later rule is the one that holds.
 */
-.eiga-button:disabled {
+.eiga-button:disabled,
+.eiga-button[aria-disabled="true"] {
   color: var(--color-paper-dim);
   border-color: var(--color-rule-soft);
   cursor: default;
@@ -286,6 +287,7 @@ body {
   }
 
   .eiga-atlas-actions {
+    max-width: calc(100vw - 4.5rem);
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: flex-end;

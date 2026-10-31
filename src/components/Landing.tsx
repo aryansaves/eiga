@@ -51,6 +51,7 @@ export interface LandingProps {
   readonly onReset: () => void;
   readonly accountControl?: ReactNode;
   readonly privacyText?: string;
+  readonly importReady?: boolean;
 }
 
 export function Landing({
@@ -60,6 +61,7 @@ export function Landing({
   onReset,
   accountControl,
   privacyText,
+  importReady = true,
 }: LandingProps) {
   return (
     /*
@@ -93,7 +95,7 @@ export function Landing({
         </p>
 
         <div className="mt-9">
-          <ImportControl onFiles={onFiles} />
+          <ImportControl onFiles={onFiles} disabled={!importReady} />
         </div>
 
         {report && (
