@@ -7,6 +7,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -38,29 +39,15 @@ import {
   endpoint,
   filmRadius,
   fitToFrame,
-  FRAME_INSET,
   FRAME_INSET_BARE,
   hubRadius,
   positionsOf,
   settle,
-  type FrameInset,
   type LayoutHandle,
   type LayoutNode,
 } from "@/viz/layout.ts";
 
-/**
- * The width at which the chrome stops overlaying the map and starts framing it.
- *
- * This is Tailwind's `sm` breakpoint, and it is duplicated here on purpose: it is
- * the one fact the visualization needs about a layout decision made in CSS. Above
- * it `Atlas` floats two caption bands over a full-bleed map and `FRAME_INSET`
- * keeps the graph clear of them; below it the same bands are a header and a footer
- * in flow, nothing is over the map, and reserving that room throws away four
- * fifths of the frame.
- *
- * If the `sm:` prefixes in `Atlas` ever move, this moves with them.
- */
-const OVERLAY_MIN_WIDTH = 640;
+import { frameAtlas, PHONE_WIDTH } from "@/viz/framing.ts";
 
 /**
  * How far the zoom must move before the labels are chosen again, as a log ratio.
@@ -97,21 +84,12 @@ interface Viewport {
   readonly height: number;
 }
 
-/**
- * Which frame the map is being drawn into.
- *
- * Keyed on the map's own measured width rather than the window's, because the map
- * is what the inset is about — and because `size` is already measured here, so
- * this asks no new question of the DOM.
- */
-function insetFor(viewport: Viewport): FrameInset {
-  return viewport.width >= OVERLAY_MIN_WIDTH ? FRAME_INSET : FRAME_INSET_BARE;
-}
-
 type ElementState = "rest" | "anchor" | "near" | "far";
 
 export interface GraphViewProps {
   readonly graph: Graph;
+  /** Shared pages frame the graph with in-flow controls at every width. */
+  readonly framed?: boolean;
   readonly focusedId: string | null;
   readonly onFocus: (id: string | null) => void;
   /**
@@ -178,6 +156,7 @@ function mapDescription(graph: Graph, films: number): string {
 
 export function GraphView({
   graph,
+  framed = false,
   focusedId,
   onFocus,
   lit,
@@ -192,6 +171,7 @@ export function GraphView({
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   /** Set once the user pans or zooms, after which the view is theirs to keep. */
   const exploredRef = useRef(false);
+  const overviewRef = useRef(false);
   /**
    * The view a search took the user away from, or null if there is nothing to
    * return them to.
@@ -349,6 +329,33 @@ export function GraphView({
     };
   }, []);
 
+  const focusedRef = useRef(focusedId);
+  const travelRef = useRef(travel);
+  useLayoutEffect(() => {
+    focusedRef.current = focusedId;
+    travelRef.current = travel;
+  }, [focusedId, travel]);
+
+  const revealFocus = useCallback((layout: LayoutHandle, size: Viewport | null) => {
+    const svg = svgRef.current;
+    const behaviour = zoomRef.current;
+    const node = layout.nodes.find((node) => node.id === focusedRef.current);
+    if (!svg || !behaviour || !size || !node || travelRef.current !== null) return;
+    const current = zoomTransform(svg);
+    const x = current.applyX(node.x);
+    const y = current.applyY(node.y);
+    if (x >= 36 && x <= size.width - 36 && y >= 36 && y <= size.height - 36) return;
+    behaviour.transform(
+      select(svg),
+      zoomIdentity
+        .translate(
+          size.width / 2 - node.x * current.k,
+          size.height / 2 - node.y * current.k,
+        )
+        .scale(current.k),
+    );
+  }, []);
+
   /*
     Framing goes through the zoom behaviour rather than around it: writing the
     viewport transform directly would leave d3-zoom's internal state stale, and
@@ -356,22 +363,67 @@ export function GraphView({
     has moved the view themselves — re-centring someone's map out from under them
     while they are reading it is worse than an imperfect fit.
   */
-  const frameTo = (layout: LayoutHandle, viewport: Viewport | null) => {
-    const svg = svgRef.current;
-    const behaviour = zoomRef.current;
-    if (!svg || !behaviour || !viewport || exploredRef.current) return;
+  const frameTo = useCallback(
+    (layout: LayoutHandle, viewport: Viewport | null) => {
+      const svg = svgRef.current;
+      const behaviour = zoomRef.current;
+      if (!svg || !behaviour || !viewport) return;
 
-    // The whole handle rather than its nodes, because a year row is part of the
-    // extent the map has to be framed to and is not a node — see `fitToFrame`.
-    const fit = fitToFrame(
-      layout.nodes,
-      viewport.width,
-      viewport.height,
-      layout.rows,
-      insetFor(viewport),
-    );
-    behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
-  };
+      // The whole handle rather than its nodes, because a year row is part of the
+      // extent the map has to be framed to and is not a node — see `fitToFrame`.
+      const whole = frameAtlas(
+        layout.nodes,
+        viewport.width,
+        viewport.height,
+        layout.rows,
+        framed,
+        true,
+      );
+      // Programmatic overview fits and pinch gestures must share the same range.
+      behaviour.scaleExtent([Math.min(0.25, whole.k), 6]);
+      if (exploredRef.current) return;
+      if (overviewRef.current) {
+        behaviour.transform(
+          select(svg),
+          zoomIdentity.translate(whole.x, whole.y).scale(whole.k),
+        );
+        return;
+      }
+      const matches =
+        travelRef.current === null
+          ? []
+          : layout.nodes.filter(
+              (node) => node.filmId !== null && travelRef.current!.has(node.filmId),
+            );
+      if (matches.length) {
+        const fit = fitToFrame(
+          matches,
+          viewport.width,
+          viewport.height,
+          [],
+          framed || viewport.width < PHONE_WIDTH ? FRAME_INSET_BARE : undefined,
+        );
+        behaviour.transform(
+          select(svg),
+          zoomIdentity.translate(fit.x, fit.y).scale(fit.k),
+        );
+        return;
+      }
+      if (focusedRef.current) {
+        revealFocus(layout, viewport);
+        return;
+      }
+      const fit = frameAtlas(
+        layout.nodes,
+        viewport.width,
+        viewport.height,
+        layout.rows,
+        framed,
+      );
+      behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
+    },
+    [framed, revealFocus],
+  );
 
   // Coordinates: computed here, written straight to the DOM, never through state.
   useLayoutEffect(() => {
@@ -423,7 +475,10 @@ export function GraphView({
       }
     };
 
-    const frame = () => frameTo(layout, sizeRef.current);
+    const frame = () => {
+      frameTo(layout, sizeRef.current);
+      revealFocus(layout, sizeRef.current);
+    };
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     /*
@@ -440,7 +495,10 @@ export function GraphView({
       if (graph.shape !== "thread") settle(simulation);
       paint();
       // Only a first paint reclaims the view; a re-sort leaves the framing be.
-      if (!layout.seeded) exploredRef.current = false;
+      if (!layout.seeded) {
+        exploredRef.current = false;
+        overviewRef.current = false;
+      }
       animatingRef.current = false;
       frame();
       /*
@@ -492,7 +550,7 @@ export function GraphView({
       simulation.on("tick", null).on("end", null).stop();
       animatingRef.current = false;
     };
-  }, [graph, layoutWidth, layoutHeight, ready]);
+  }, [graph, layoutWidth, layoutHeight, ready, frameTo, revealFocus]);
 
   /*
     Reframing on a viewport change alone. The layout is quantised, so a resize
@@ -503,7 +561,9 @@ export function GraphView({
     const layout = layoutRef.current;
     if (!layout || animatingRef.current) return;
     frameTo(layout, size);
-  }, [size]);
+    revealFocus(layout, size);
+    applyNames();
+  }, [size, frameTo, revealFocus]);
 
   /*
     Take the user to the match, and bring them back.
@@ -558,6 +618,10 @@ export function GraphView({
     if (matches.length === 0) return;
 
     beforeTravelRef.current ??= zoomTransform(svg);
+    // A new search takes ownership of the camera, even after an earlier pan.
+    // Subsequent user gestures can still opt out of automatic reframing.
+    exploredRef.current = false;
+    overviewRef.current = false;
 
     /*
       No rows passed, unlike `frameTo`: this frames the films that matched, not the
@@ -573,10 +637,16 @@ export function GraphView({
       viewport.width,
       viewport.height,
       [],
-      insetFor(viewport),
+      framed || viewport.width < PHONE_WIDTH ? FRAME_INSET_BARE : undefined,
     );
     behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
-  }, [travel]);
+  }, [travel, framed]);
+
+  useLayoutEffect(() => {
+    const layout = layoutRef.current;
+    if (layout) revealFocus(layout, sizeRef.current);
+    applyNames();
+  }, [focusedId, revealFocus]);
 
   /*
     Searching or filtering changes which titles the map should spend its space on:
@@ -629,6 +699,16 @@ export function GraphView({
   const registerEdge = (id: string) => (el: SVGLineElement | SVGPathElement | null) => {
     if (el) edgeEls.current.set(id, el);
     else edgeEls.current.delete(id);
+  };
+
+  const changeZoom = (factor: number) => {
+    const svg = svgRef.current;
+    const behaviour = zoomRef.current;
+    if (!svg || !behaviour) return;
+    exploredRef.current = true;
+    beforeTravelRef.current = null;
+    behaviour.scaleBy(select(svg), factor);
+    applyNames();
   };
 
   const toggle = (id: string) => onFocus(id === focusedId ? null : id);
@@ -790,22 +870,40 @@ export function GraphView({
           </g>
         </g>
       </svg>
-      {graph.shape === "thread" && (
+      <div className="eiga-map-controls" role="group" aria-label="Map view">
         <button
           type="button"
-          className="eiga-button bg-void absolute right-3 bottom-3 sm:right-12 sm:bottom-36"
+          className="eiga-button"
+          aria-label="Zoom out"
+          onClick={() => changeZoom(1 / 1.5)}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          className="eiga-button"
+          aria-label="Zoom in"
+          onClick={() => changeZoom(1.5)}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className="eiga-button"
           onClick={() => {
             onFocus(null);
+            focusedRef.current = null;
             exploredRef.current = false;
+            overviewRef.current = true;
             beforeTravelRef.current = null;
             const layout = layoutRef.current;
             if (layout) frameTo(layout, sizeRef.current);
             applyNames();
           }}
         >
-          Whole journey
+          Fit all
         </button>
-      )}
+      </div>
     </div>
   );
 }

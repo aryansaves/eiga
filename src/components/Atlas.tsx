@@ -70,7 +70,6 @@ export function Atlas() {
   const [shareRequested, setShareRequested] = useState(false);
   const [sourceReady, setSourceReady] = useState(false);
   const [shareFailure, setShareFailure] = useState(false);
-  const [shareStamp, setShareStamp] = useState<number | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
   const importGeneration = useRef(0);
   const shareCancelled = useRef(false);
@@ -135,10 +134,9 @@ export function Atlas() {
     shareCancelled.current = false;
     let live = true;
     void getSharedMap(token)
-      .then(({ library: shared, updatedAt }) => {
+      .then(({ library: shared }) => {
         if (!live || shareCancelled.current) return;
         setSharedLibrary(shared);
-        setShareStamp(updatedAt);
         setShareFailure(false);
       })
       .catch(() => {
@@ -335,7 +333,6 @@ export function Atlas() {
     setSourceReady(true);
     setSharedLibrary(null);
     setShareFailure(false);
-    setShareStamp(null);
     router.push("/");
   }, [router]);
   const signOut = useCallback(async () => {
@@ -449,7 +446,8 @@ export function Atlas() {
     <main
       /* Desktop bands overlay the map. Mobile bands stay in flow so controls
          cannot cover the graph; compact CSS reserves most height for the map. */
-      className="relative flex flex-1 flex-col overflow-hidden sm:block"
+      className={`eiga-atlas relative flex flex-1 flex-col overflow-hidden sm:block ${readOnly ? "eiga-shared" : ""}`}
+      data-selected={focused ? "true" : "false"}
       onDragOver={(event) => {
         event.preventDefault();
         if (readOnly || !sourceReady) return;
@@ -542,7 +540,9 @@ export function Atlas() {
                 </Link>
               </h1>
               {readOnly && (
-                <p className="eiga-annotation mt-2">Shared atlas · read only</p>
+                <p className="eiga-annotation mt-1">
+                  Shared atlas<span className="sr-only"> · read only</span>
+                </p>
               )}
               {/*
                 Dropped on a phone, where this line would share 319px with the
@@ -550,7 +550,9 @@ export function Atlas() {
                 directly under the wordmark at full size, and every visitor to a
                 loaded map has just come through there.
               */}
-              <p className="eiga-annotation mt-2 max-sm:hidden">Your cinema, mapped.</p>
+              {!readOnly && (
+                <p className="eiga-annotation mt-2 max-sm:hidden">Your cinema, mapped.</p>
+              )}
             </div>
 
             {/* Keep account controls and file actions in two contained rows. */}
@@ -559,7 +561,7 @@ export function Atlas() {
                 <ThemeControl />
                 {readOnly ? (
                   <button type="button" className="eiga-button" onClick={exitShare}>
-                    Open your atlas
+                    Your atlas
                   </button>
                 ) : sourceReady ? (
                   accountControls
@@ -602,7 +604,7 @@ export function Atlas() {
               </div>
             </div>
 
-            <div className="pointer-events-auto col-span-2 col-start-1 row-start-2 sm:col-span-1">
+            <div className="eiga-atlas-filters pointer-events-auto col-span-2 col-start-1 row-start-2 sm:col-span-1">
               <AxisControl options={options} active={active.id} onSelect={setAxis} />
               <SearchControl
                 query={query}
@@ -647,9 +649,10 @@ export function Atlas() {
               </div>
             </div>
           )}
-          <div className="relative min-h-0 flex-1 sm:absolute sm:inset-0">
+          <div className="eiga-atlas-surface relative min-h-0 flex-1 sm:absolute sm:inset-0">
             <GraphView
               graph={graph}
+              framed={readOnly}
               focusedId={focused}
               onFocus={setFocusedId}
               lit={lit}
@@ -665,19 +668,17 @@ export function Atlas() {
           </div>
 
           <div className="eiga-atlas-footer from-void via-void/85 border-rule pointer-events-none relative z-10 flex shrink-0 flex-wrap items-end justify-between gap-6 border-t px-7 pt-5 pb-7 sm:absolute sm:inset-x-0 sm:bottom-0 sm:gap-8 sm:border-0 sm:bg-linear-to-t sm:to-transparent sm:px-12 sm:pt-20">
-            {/*
-              Given a fixed plate on a phone rather than being allowed to grow.
-
-              The museum label is the one piece of chrome whose height is decided by
-              the data — "Nothing selected" is two lines, a five-star film with a
-              review is ten — and in a flow column that height comes straight out of
-              the map's. `GraphView` reframes on every size change, so letting the
-              label grow would mean the map jumped and re-fitted each time a film was
-              tapped, which is the one gesture the whole screen exists to serve. A
-              fixed plate that scrolls keeps the map still; above `sm` the label
-              floats over the map and can be exactly as tall as it needs to be.
-            */}
-            <div className="eiga-atlas-inspector pointer-events-auto max-sm:h-36 max-sm:w-full max-sm:overflow-y-auto">
+            <div className="eiga-atlas-inspector pointer-events-auto">
+              {focused && (
+                <button
+                  type="button"
+                  className="eiga-button eiga-inspector-close"
+                  aria-label="Close film details"
+                  onClick={() => setFocusedId(null)}
+                >
+                  Close
+                </button>
+              )}
               <Inspector
                 graph={graph}
                 library={library}
@@ -687,17 +688,9 @@ export function Atlas() {
               />
             </div>
 
-            {/*
-              Allowed to shrink. It was `shrink-0` so the status line would never
-              wrap mid-phrase, but refusing to shrink is how it left the viewport
-              entirely — a wrapped status line is legible and an absent one is not.
-
-              Flush right in the corner it occupies above `sm`, flush left on a
-              phone, where it is a full-width row under the label and ranging it
-              right would leave it hanging off the end of nothing.
-            */}
-            <div className="eiga-atlas-status pointer-events-auto text-right max-sm:w-full max-sm:text-left">
-              {/*
+            {!readOnly && (
+              <div className="eiga-atlas-status pointer-events-auto text-right max-sm:w-full max-sm:text-left">
+                {/*
                 `text-balance` because this line is composed, not written, so its
                 length is a property of the library and cannot be checked once.
                 Measured at 375px it wrapped to `37 films · 29 days · 4 undated ·`
@@ -706,27 +699,23 @@ export function Atlas() {
                 clause. Balancing splits it evenly instead of leaving the tail
                 behind. Above `sm` it fits on one line and this does nothing.
               */}
-              <p className="eiga-annotation text-balance">{status}</p>
-              <p
-                role={account.session.user && !readOnly ? "status" : undefined}
-                aria-live={account.session.user && !readOnly ? "polite" : undefined}
-                className="eiga-annotation mt-1.5"
-              >
-                {readOnly && !sharedLibrary
-                  ? "Shared maps are read only"
-                  : sharedLibrary
-                    ? `Shared ${shareStamp ? new Date(shareStamp).toLocaleDateString() : "publicly"} · reviews included`
-                    : account.session.user
-                      ? account.saving === "working"
-                        ? "Saving atlas to your account…"
-                        : account.saving === "failed"
-                          ? "Save failed · retry in account"
-                          : account.saved && (ownsLocalTarget || accountLibrary)
-                            ? "Atlas saved to your account"
-                            : "Your atlas is local until it saves"
-                      : "Your imported library stays in this browser"}
-              </p>
-              {/*
+                <p className="eiga-annotation text-balance">{status}</p>
+                <p
+                  role={account.session.user && !readOnly ? "status" : undefined}
+                  aria-live={account.session.user && !readOnly ? "polite" : undefined}
+                  className="eiga-annotation mt-1.5"
+                >
+                  {account.session.user
+                    ? account.saving === "working"
+                      ? "Saving atlas to your account…"
+                      : account.saving === "failed"
+                        ? "Save failed · retry in account"
+                        : account.saved && (ownsLocalTarget || accountLibrary)
+                          ? "Atlas saved to your account"
+                          : "Your atlas is local until it saves"
+                    : "Your imported library stays in this browser"}
+                </p>
+                {/*
                 One corner answers "how do I get out of this library", in both
                 senses of it. After an import that is the report, which carries its
                 own way back; on the demo there is no report to carry one, and
@@ -739,20 +728,19 @@ export function Atlas() {
                 built and is worth reading twice; leaving the demo discards nothing
                 and should not be dressed up as though it might.
               */}
-              <div className="eiga-atlas-exit">
-                {readOnly ? (
-                  <p className="eiga-annotation mt-4">Read only</p>
-                ) : imported ? (
-                  <div className="mt-4">
-                    <ImportReport result={imported} onReset={reset} />
-                  </div>
-                ) : (
-                  <button type="button" onClick={reset} className="eiga-button mt-4">
-                    {accountLibrary ? "Close atlas" : "Leave the demo"}
-                  </button>
-                )}
+                <div className="eiga-atlas-exit">
+                  {imported ? (
+                    <div className="mt-4">
+                      <ImportReport result={imported} onReset={reset} />
+                    </div>
+                  ) : (
+                    <button type="button" onClick={reset} className="eiga-button mt-4">
+                      {accountLibrary ? "Close atlas" : "Leave the demo"}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </>
       )}
