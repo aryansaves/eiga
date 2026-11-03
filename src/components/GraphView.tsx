@@ -364,7 +364,7 @@ export function GraphView({
     while they are reading it is worse than an imperfect fit.
   */
   const frameTo = useCallback(
-    (layout: LayoutHandle, viewport: Viewport | null, reset = false) => {
+    (layout: LayoutHandle, viewport: Viewport | null) => {
       const svg = svgRef.current;
       const behaviour = zoomRef.current;
       if (!svg || !behaviour || !viewport) return;
@@ -377,7 +377,6 @@ export function GraphView({
         viewport.height,
         layout.rows,
         framed,
-        true,
       );
       // Programmatic overview fits and pinch gestures must share the same range.
       behaviour.scaleExtent([Math.min(0.25, whole.k), 6]);
@@ -410,37 +409,13 @@ export function GraphView({
         return;
       }
       if (focusedRef.current) {
-        const node = layout.nodes.find((node) => node.id === focusedRef.current);
-        if (reset && node) {
-          const { k } = frameAtlas(
-            layout.nodes,
-            viewport.width,
-            viewport.height,
-            layout.rows,
-            framed,
-          );
-          behaviour.transform(
-            select(svg),
-            zoomIdentity
-              .translate(
-                viewport.width / 2 - node.x * k,
-                viewport.height / 2 - node.y * k,
-              )
-              .scale(k),
-          );
-          return;
-        }
         revealFocus(layout, viewport);
         return;
       }
-      const fit = frameAtlas(
-        layout.nodes,
-        viewport.width,
-        viewport.height,
-        layout.rows,
-        framed,
+      behaviour.transform(
+        select(svg),
+        zoomIdentity.translate(whole.x, whole.y).scale(whole.k),
       );
-      behaviour.transform(select(svg), zoomIdentity.translate(fit.x, fit.y).scale(fit.k));
     },
     [framed, revealFocus],
   );
@@ -464,19 +439,8 @@ export function GraphView({
       the demo — while films are already on screen. A resize also rebuilds the
       layout, but nothing has been re-grouped, so it must not re-animate.
     */
-    const graphChanged = lastGraphRef.current !== graph;
-    const phone = (sizeRef.current?.width ?? layoutWidth) < PHONE_WIDTH;
-    const resorting = layout.seeded && graphChanged && !phone;
+    const resorting = layout.seeded && lastGraphRef.current !== graph;
     lastGraphRef.current = graph;
-
-    // A new axis has different coordinates. A phone's zoomed-in journey camera
-    // must not carry over to the hub map, even after a pan or Fit all. Settle the
-    // new arrangement before showing it so it never travels out of the frame.
-    if (phone && graphChanged) {
-      exploredRef.current = false;
-      overviewRef.current = false;
-      beforeTravelRef.current = null;
-    }
 
     const { simulation } = layout;
 
@@ -507,7 +471,7 @@ export function GraphView({
     };
 
     const frame = () => {
-      frameTo(layout, sizeRef.current, phone && graphChanged);
+      frameTo(layout, sizeRef.current);
       revealFocus(layout, sizeRef.current);
     };
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -525,7 +489,7 @@ export function GraphView({
     if (!resorting || reducedMotion) {
       if (graph.shape !== "thread") settle(simulation);
       paint();
-      // Desktop preserves the view on a re-sort; phones reclaimed it above.
+      // Only a first paint reclaims the view; a re-sort leaves the framing be.
       if (!layout.seeded) {
         exploredRef.current = false;
         overviewRef.current = false;
@@ -538,7 +502,7 @@ export function GraphView({
         label choice is a function of that scale.
       */
       applyNames();
-      if (reducedMotion || graph.shape === "thread" || phone) return;
+      if (reducedMotion || graph.shape === "thread") return;
 
       // Re-heat gently, so the map is seen finding its last few millimetres.
       // Names are chosen again at the end of it, against where the dots actually
