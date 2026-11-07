@@ -192,7 +192,8 @@ npm run build   # → out/
 
 Cloudflare Pages serves production at `eiga.pages.dev` and the active test version at
 `eiga-staging.pages.dev`. Both use `eiga-db`, with separate staging/production tables.
-Feature pushes dispatch the backend staging workflow; frontend main merges alone
+Frontend `staging` pushes dispatch the backend staging workflow; feature PRs run
+checks without deploying. Frontend main merges alone
 do not release production. See [development](docs/development.md) and the backend
 README for setup, release ordering, and database migration details. Analytics stays off.
 
